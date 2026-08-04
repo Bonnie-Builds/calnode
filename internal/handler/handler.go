@@ -26,7 +26,8 @@ type Handler struct {
 	bookingSvc        *booking.Service
 	mailer            mailer.Mailer
 	live              *mailer.Live // non-nil in production; nil in tests using a direct stub
-	encKey            [32]byte     // AES-256 key for encrypting secrets stored in the DB
+	emailEnvManaged   bool
+	encKey            [32]byte // AES-256 key for encrypting secrets stored in the DB
 	calMu             sync.RWMutex
 	cal               *calendar.Service
 	calNudge          chan struct{} // buffered(1): wakes the calendar reconciler after a failed inline op
@@ -142,6 +143,18 @@ func (h *Handler) SetMailer(m mailer.Mailer, baseURL string) {
 	if l, ok := m.(*mailer.Live); ok {
 		h.live = l
 	}
+}
+
+// SetMailTransport stores the hot-swappable provider transport used by the
+// durable worker and by explicit live connection tests.
+func (h *Handler) SetMailTransport(live *mailer.Live) {
+	h.live = live
+}
+
+// SetEmailEnvironmentManaged prevents the admin UI from pretending it can
+// override deployment-owned credentials that will win again on restart.
+func (h *Handler) SetEmailEnvironmentManaged(managed bool) {
+	h.emailEnvManaged = managed
 }
 
 // SetEncKey stores the AES-256 encryption key used for secrets in the DB.

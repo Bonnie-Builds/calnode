@@ -103,14 +103,20 @@ func (h *Handler) issueInvite(ctx context.Context, email, adminName, adminID str
 
 	inviteURL = h.baseURL + "/admin/invite/" + token
 	if h.isEmailEnabled() {
-		_ = h.mailer.Send(ctx, mailer.Message{
+		if err := h.mailer.Send(ctx, mailer.Message{
 			To:      []string{email},
 			Subject: "You've been invited to Bonnie",
 			Text: "You've been invited to join Bonnie by " + adminName + ".\n\n" +
 				"Click the link below to set up your account. The link expires in 7 days " +
 				"and is locked to this email address.\n\n" + inviteURL + "\n\n" +
 				"If you weren't expecting this invite, you can safely ignore this email.",
-		})
+			IdempotencyKey: "invite/" + id,
+		}); err != nil {
+			if _, deleteErr := h.db.ExecContext(ctx, `DELETE FROM invite_tokens WHERE id = ?`, id); deleteErr != nil {
+				h.logger.ErrorContext(ctx, "invite: rollback token after email enqueue failure", "error", deleteErr)
+			}
+			return "", "", "", err
+		}
 	}
 	return id, inviteURL, expiresAt, nil
 }

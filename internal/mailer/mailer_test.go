@@ -322,3 +322,29 @@ func TestBuildRaw_fromNameFormatted(t *testing.T) {
 		t.Error("From: header missing sender address")
 	}
 }
+
+func TestBuildRaw_resendIdempotencyHeader(t *testing.T) {
+	s := smtpForTest()
+	raw := string(s.buildRaw(Message{
+		To:             []string{"x@example.com"},
+		Subject:        "Hi",
+		Text:           "body",
+		IdempotencyKey: "calnode/email/delivery-1",
+	}))
+	if !strings.Contains(raw, "Resend-Idempotency-Key: calnode/email/delivery-1\r\n") {
+		t.Fatal("raw message is missing the Resend SMTP idempotency header")
+	}
+}
+
+func TestBuildRaw_rejectsIdempotencyHeaderInjection(t *testing.T) {
+	s := smtpForTest()
+	raw := string(s.buildRaw(Message{
+		To:             []string{"x@example.com"},
+		Subject:        "Hi",
+		Text:           "body",
+		IdempotencyKey: "safe\r\nBcc: attacker@example.com",
+	}))
+	if strings.Contains(raw, "Resend-Idempotency-Key:") || strings.Contains(raw, "Bcc:") {
+		t.Fatal("unsafe idempotency key was emitted as an SMTP header")
+	}
+}

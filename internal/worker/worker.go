@@ -146,6 +146,14 @@ func (w *Worker) Poll(ctx context.Context) {
 		WHERE status = 'running' AND locked_until < ? AND attempts >= max_attempts`, now); err != nil {
 		w.logger.Error("worker: reaper: fail exhausted", "error", err)
 	}
+	if _, err := w.db.ExecContext(ctx, `
+		UPDATE email_deliveries SET status = 'failed', updated_at = datetime('now')
+		WHERE id IN (
+			SELECT json_extract(payload, '$.delivery_id') FROM jobs
+			WHERE type = ? AND status = 'failed'
+		) AND status != 'accepted'`, mailer.EmailJobType); err != nil {
+		w.logger.Error("worker: reconcile failed email deliveries", "error", err)
+	}
 
 	rows, err := w.db.QueryContext(ctx, `
 		SELECT id, type, payload, attempts, max_attempts
@@ -195,6 +203,7 @@ func (w *Worker) Poll(ctx context.Context) {
 					err.Error(), j.id); uerr != nil {
 					w.logger.Error("worker: mark job failed", "error", uerr, "job_id", j.id)
 				}
+				w.markEmailDeliveryFailed(ctx, j.typ, j.payload)
 			} else {
 				runAt := time.Now().UTC().Add(backoff(j.attempts)).Format(time.RFC3339)
 				if _, uerr := w.db.ExecContext(ctx,
@@ -227,14 +236,77 @@ func (w *Worker) processJob(ctx context.Context, typ, payload string) error {
 		return w.deliverWebhook(ctx, payload)
 	case "reminder.send":
 		return w.sendReminder(ctx, payload)
+	case mailer.EmailJobType:
+		return w.sendQueuedEmail(ctx, payload)
 	default:
 		return fmt.Errorf("worker: unknown job type %q", typ)
 	}
 }
 
+func (w *Worker) sendQueuedEmail(ctx context.Context, payload string) error {
+	deliveryID, err := mailer.DecodeQueuedEmailPayload(payload)
+	if err != nil {
+		return fmt.Errorf("worker: email: parse payload: %w", err)
+	}
+
+	var messageJSON, status string
+	if err := w.db.QueryRowContext(ctx,
+		`SELECT message_json, status FROM email_deliveries WHERE id = ?`, deliveryID).
+		Scan(&messageJSON, &status); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return fmt.Errorf("worker: email: load delivery: %w", err)
+	}
+	if status == "accepted" {
+		return nil
+	}
+
+	var msg mailer.Message
+	if err := json.Unmarshal([]byte(messageJSON), &msg); err != nil {
+		return fmt.Errorf("worker: email: decode message: %w", err)
+	}
+	msg.IdempotencyKey = "calnode/email/" + deliveryID
+	if err := w.mailer.Send(ctx, msg); err != nil {
+		if _, updateErr := w.db.ExecContext(ctx, `
+			UPDATE email_deliveries SET
+			  status = 'retrying', attempt_count = attempt_count + 1,
+			  last_error = ?, updated_at = datetime('now')
+			WHERE id = ?`, err.Error(), deliveryID); updateErr != nil {
+			w.logger.Error("worker: email: record retry", "error", updateErr, "delivery_id", deliveryID)
+		}
+		return fmt.Errorf("worker: email: provider send: %w", err)
+	}
+
+	if _, err := w.db.ExecContext(ctx, `
+		UPDATE email_deliveries SET
+		  status = 'accepted', attempt_count = attempt_count + 1,
+		  last_error = '', accepted_at = datetime('now'), updated_at = datetime('now')
+		WHERE id = ?`, deliveryID); err != nil {
+		return fmt.Errorf("worker: email: record acceptance: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) markEmailDeliveryFailed(ctx context.Context, typ, payload string) {
+	if typ != mailer.EmailJobType {
+		return
+	}
+	deliveryID, err := mailer.DecodeQueuedEmailPayload(payload)
+	if err != nil {
+		return
+	}
+	if _, err := w.db.ExecContext(ctx, `
+		UPDATE email_deliveries SET status = 'failed', updated_at = datetime('now')
+		WHERE id = ? AND status != 'accepted'`, deliveryID); err != nil {
+		w.logger.Error("worker: email: mark delivery failed", "error", err, "delivery_id", deliveryID)
+	}
+}
+
 func (w *Worker) sendReminder(ctx context.Context, payload string) error {
 	var p struct {
-		BookingID string `json:"booking_id"`
+		BookingID   string `json:"booking_id"`
+		HoursBefore int    `json:"hours_before"`
 	}
 	if err := json.Unmarshal([]byte(payload), &p); err != nil {
 		return fmt.Errorf("worker: reminder: parse payload: %w", err)
@@ -245,6 +317,7 @@ func (w *Worker) sendReminder(ctx context.Context, payload string) error {
 	// Skip if booking is deleted or no longer confirmed.
 	var d mailer.BookingData
 	d.BookingID = p.BookingID
+	d.DeliveryKey = fmt.Sprintf("calnode/reminder/%s/%d", p.BookingID, p.HoursBefore)
 	var startAt, endAt, status string
 	var locVal, msgReminder, subjReminder sql.NullString
 	var notifyReminder int

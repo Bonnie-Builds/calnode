@@ -133,3 +133,37 @@ func TestLoad_bonnieManagedMode(t *testing.T) {
 		t.Fatal("BonnieManagedMode = false; want true")
 	}
 }
+
+func TestLoad_resendPreset(t *testing.T) {
+	t.Setenv("RESEND_API_KEY", "re_test_key")
+	t.Setenv("EMAIL_SMTP_HOST", "")
+	t.Setenv("EMAIL_SMTP_PORT", "")
+	t.Setenv("EMAIL_SMTP_USER", "")
+	t.Setenv("EMAIL_SMTP_PASS", "")
+	t.Setenv("EMAIL_SMTP_STARTTLS", "")
+
+	cfg := config.Load()
+	if cfg.SMTPHost != "smtp.resend.com" || cfg.SMTPPort != "587" || cfg.SMTPUser != "resend" {
+		t.Fatalf("Resend SMTP preset = %s:%s user=%s", cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser)
+	}
+	if cfg.SMTPPass != "re_test_key" || !cfg.SMTPStartTLS || cfg.SMTPTLS {
+		t.Fatal("Resend preset did not use the API key with STARTTLS")
+	}
+	if cfg.EmailProvider != "resend" || !cfg.EmailManagedByEnv {
+		t.Fatal("Resend preset was not marked as deployment-managed Resend")
+	}
+}
+
+func TestLoad_explicitSMTPDoesNotConsumeResendKey(t *testing.T) {
+	t.Setenv("RESEND_API_KEY", "re_should_not_be_used")
+	t.Setenv("EMAIL_SMTP_HOST", "smtp.example.com")
+	t.Setenv("EMAIL_SMTP_PASS", "provider-password")
+
+	cfg := config.Load()
+	if cfg.SMTPHost != "smtp.example.com" || cfg.SMTPPass != "provider-password" {
+		t.Fatal("explicit SMTP settings were not preserved")
+	}
+	if cfg.EmailProvider != "smtp" {
+		t.Fatalf("EmailProvider = %q; want smtp", cfg.EmailProvider)
+	}
+}

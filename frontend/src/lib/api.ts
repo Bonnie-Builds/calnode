@@ -163,6 +163,12 @@ export type EmailSettings = {
 	email_from: string;
 	email_from_name: string;
 	enabled: boolean;
+	provider: 'resend' | 'smtp';
+	managed_by_environment: boolean;
+	verified: boolean;
+	verified_at: string;
+	last_delivery_status: '' | 'pending' | 'retrying' | 'accepted' | 'failed';
+	last_delivery_at: string;
 };
 
 export type GoogleSettings = {

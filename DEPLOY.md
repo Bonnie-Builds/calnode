@@ -29,9 +29,10 @@ This guide covers a generic Docker deploy and a step-by-step **Railway** deploy
 | `PUBLIC_BASE_URL` | no | = `BASE_URL` | Booker-facing host for booking links/emails, if different from the identity host. |
 | `DATABASE_URL` | no | `sqlite://./data/calnode.db` | Point at the persistent volume, e.g. `sqlite:///data/calnode.db`. |
 | `PORT` | no | `3000` | The app listens on `$PORT`. Many platforms inject their own (Railway injects `8080`) — let them. |
-| `EMAIL_SMTP_HOST` / `_PORT` / `_USER` / `_PASS` | no¹ | — / `587` | SMTP. Can also be set later in Settings → Email (DB-stored, encrypted). |
+| `RESEND_API_KEY` | no¹ | — | Recommended email setup. Uses Resend SMTP (`smtp.resend.com:587`, user `resend`, STARTTLS). |
+| `EMAIL_SMTP_HOST` / `_PORT` / `_USER` / `_PASS` | no¹ | — / `587` | Generic SMTP alternative. Can also be set later in Settings → Email (DB-stored, encrypted). Deployment env takes precedence over DB settings. |
 | `EMAIL_SMTP_TLS` / `_STARTTLS` | no | `false` | `STARTTLS` for 587, implicit `TLS` for 465. |
-| `EMAIL_FROM_ADDRESS` / `EMAIL_FROM_NAME` | no | `bookings@localhost` / `Calnode` | The From identity. |
+| `EMAIL_FROM_ADDRESS` / `EMAIL_FROM_NAME` | no | `bookings@localhost` / `Bonnie` | The From identity. Resend requires a verified sender address. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | — | Google sign-in + calendar. Can also be set in Settings → Google OAuth. |
 | `BONNIE_MANAGED_MODE` | no | `false` | Bonnie integration mode. Disables Calnode's browser calendar-consent route and enables the API-key-only managed Google credential endpoints described in §5.1. |
 | `LITESTREAM_REPLICA_URL` | recommended | — | Enables continuous SQLite backup (see §6). |

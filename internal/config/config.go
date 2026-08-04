@@ -18,14 +18,16 @@ type Config struct {
 	LogLevel       slog.Level
 
 	// Email / SMTP
-	SMTPHost      string
-	SMTPPort      string
-	SMTPUser      string
-	SMTPPass      string
-	SMTPTLS       bool // implicit TLS (port 465)
-	SMTPStartTLS  bool // STARTTLS (port 587)
-	EmailFrom     string
-	EmailFromName string
+	SMTPHost          string
+	SMTPPort          string
+	SMTPUser          string
+	SMTPPass          string
+	SMTPTLS           bool // implicit TLS (port 465)
+	SMTPStartTLS      bool // STARTTLS (port 587)
+	EmailFrom         string
+	EmailFromName     string
+	EmailProvider     string // "resend" for the deployment preset; otherwise "smtp"
+	EmailManagedByEnv bool   // true when deployment env owns email configuration
 
 	// Google OAuth (calendar + sign-in)
 	GoogleClientID     string
@@ -67,19 +69,43 @@ type Config struct {
 }
 
 func Load() *Config {
+	resendKey := strings.TrimSpace(os.Getenv("RESEND_API_KEY"))
+	smtpHost := getEnv("EMAIL_SMTP_HOST", "")
+	smtpPort := getEnv("EMAIL_SMTP_PORT", "587")
+	smtpUser := getEnv("EMAIL_SMTP_USER", "")
+	smtpPass := getEnv("EMAIL_SMTP_PASS", "")
+	smtpTLS := getBool("EMAIL_SMTP_TLS", false)
+	smtpStartTLS := getBool("EMAIL_SMTP_STARTTLS", false)
+	emailProvider := "smtp"
+	emailManagedByEnv := smtpHost != ""
+	if smtpHost == "" && resendKey != "" {
+		smtpHost = "smtp.resend.com"
+		smtpPort = "587"
+		smtpUser = "resend"
+		smtpPass = resendKey
+		smtpTLS = false
+		smtpStartTLS = true
+		emailProvider = "resend"
+		emailManagedByEnv = true
+	} else if strings.EqualFold(smtpHost, "smtp.resend.com") {
+		emailProvider = "resend"
+	}
+
 	cfg := &Config{
 		Port:        getEnv("PORT", "3000"),
 		DatabaseURL: getEnv("DATABASE_URL", "sqlite://./data/calnode.db"),
 		BaseURL:     getEnv("BASE_URL", "http://localhost:3000"),
 
-		SMTPHost:      getEnv("EMAIL_SMTP_HOST", ""),
-		SMTPPort:      getEnv("EMAIL_SMTP_PORT", "587"),
-		SMTPUser:      getEnv("EMAIL_SMTP_USER", ""),
-		SMTPPass:      getEnv("EMAIL_SMTP_PASS", ""),
-		SMTPTLS:       getBool("EMAIL_SMTP_TLS", false),
-		SMTPStartTLS:  getBool("EMAIL_SMTP_STARTTLS", false),
-		EmailFrom:     getEnv("EMAIL_FROM_ADDRESS", "bookings@localhost"),
-		EmailFromName: getEnv("EMAIL_FROM_NAME", "Bonnie"),
+		SMTPHost:          smtpHost,
+		SMTPPort:          smtpPort,
+		SMTPUser:          smtpUser,
+		SMTPPass:          smtpPass,
+		SMTPTLS:           smtpTLS,
+		SMTPStartTLS:      smtpStartTLS,
+		EmailFrom:         getEnv("EMAIL_FROM_ADDRESS", "bookings@localhost"),
+		EmailFromName:     getEnv("EMAIL_FROM_NAME", "Bonnie"),
+		EmailProvider:     emailProvider,
+		EmailManagedByEnv: emailManagedByEnv,
 
 		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
