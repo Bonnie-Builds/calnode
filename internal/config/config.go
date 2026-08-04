@@ -30,6 +30,9 @@ type Config struct {
 	// Google OAuth (calendar + sign-in)
 	GoogleClientID     string
 	GoogleClientSecret string
+	// BonnieManagedMode disables Calnode's browser calendar-consent flow and
+	// enables the API-key-only managed Google credential handoff endpoint.
+	BonnieManagedMode bool
 
 	// Microsoft 365 / Outlook (calendar) — env-only; tenant defaults to "common".
 	MicrosoftClientID     string
@@ -99,6 +102,7 @@ func Load() *Config {
 	cfg.LogLevel = parseLogLevel(getEnv("LOG_LEVEL", "info"))
 	cfg.CookieSecure = getBool("COOKIE_SECURE", strings.HasPrefix(cfg.BaseURL, "https://"))
 	cfg.DemoMode = getBool("DEMO_MODE", false)
+	cfg.BonnieManagedMode = getBool("BONNIE_MANAGED_MODE", false)
 	cfg.DemoResetInterval = getDuration("DEMO_RESET_INTERVAL", 30*time.Minute)
 
 	return cfg

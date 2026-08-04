@@ -43,6 +43,7 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	h.SetDataDir("data")
 	h.SetEncKey(cfg.EncryptionKey)
 	h.SetDemoMode(cfg.DemoMode)
+	h.SetBonnieManagedMode(cfg.BonnieManagedMode)
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
 
 	if cfg.DemoMode {
@@ -478,6 +479,8 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	// Google Calendar — connect/callback/status/disconnect
 	mux.HandleFunc("GET /v1/calendar/connect", h.RequireAuth(h.ConnectCalendar))
 	mux.HandleFunc("GET /v1/calendar/callback", h.CalendarCallback)
+	mux.HandleFunc("PUT /v1/calendar/managed/google", h.RequireAuth(h.InstallManagedGoogleCredential))
+	mux.HandleFunc("DELETE /v1/calendar/managed/google", h.RequireAuth(h.RevokeManagedGoogleCredential))
 	mux.HandleFunc("POST /v1/calendar/caldav/connect", h.RequireAuth(h.ConnectCalDAV))
 	mux.HandleFunc("GET /v1/calendar/status", h.RequireAuth(h.CalendarStatus))
 	mux.HandleFunc("POST /v1/calendar/connections/{id}/destination", h.RequireAuth(h.SetCalendarDestination))

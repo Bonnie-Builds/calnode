@@ -121,3 +121,15 @@ func TestLoad_demoResetIntervalInvalidFallsBackToDefault(t *testing.T) {
 		t.Errorf("DemoResetInterval = %v; want 30m default on invalid input", cfg.DemoResetInterval)
 	}
 }
+
+func TestLoad_bonnieManagedMode(t *testing.T) {
+	os.Unsetenv("BONNIE_MANAGED_MODE")
+	if config.Load().BonnieManagedMode {
+		t.Fatal("BonnieManagedMode should default to false")
+	}
+
+	t.Setenv("BONNIE_MANAGED_MODE", "true")
+	if !config.Load().BonnieManagedMode {
+		t.Fatal("BonnieManagedMode = false; want true")
+	}
+}

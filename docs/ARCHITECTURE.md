@@ -51,6 +51,7 @@ app you must `pnpm build` in `frontend/` **and** rebuild/restart the Go binary
   - `PUBLIC_BASE_URL` — booker-facing host (booking links, emails); defaults to BASE_URL. The split lets a tenant put the team on a custom domain (`book.acme.com`) while OAuth/admin stay on the identity host (see §16).
   - `CALNODE_ENCRYPTION_KEY` (platform secret / KEK input), `CALNODE_RECOVERY_SECRET` (escrow)
   - `SMTP_*` and `GOOGLE_CLIENT_ID/SECRET` (also settable at runtime in DB settings, which take priority)
+  - `BONNIE_MANAGED_MODE` (optional; moves Google Calendar consent to Bonnie and enables the API-key-only managed credential boundary)
   - `MICROSOFT_CLIENT_ID/SECRET` and `MICROSOFT_TENANT` (default `common`; use the
     multi-tenant `common` so any work/personal Microsoft account can connect/sign in)
   - `COOKIE_SECURE` (defaults true when BASE_URL is https)
@@ -348,6 +349,18 @@ Calnode talks to calendars through a **provider abstraction**, not a single vend
   (migration 00032 — `work`|`personal`|`""`). Token refresh is automatic via an
   oauth2 `TokenSource` wrapped by a `savingTokenSource` that persists refreshed
   tokens (and preserves `account_kind`, which a refresh has no id_token to re-derive).
+
+**Bonnie-managed Google consent.** With `BONNIE_MANAGED_MODE=true`, the normal
+calendar-connect route cannot initiate provider OAuth. Instead, an API-key-authenticated
+server caller can install or revoke Google credentials at
+`/v1/calendar/managed/google`. The API key resolves the only allowed target user;
+browser sessions are rejected and the request cannot name another user. Before writing
+anything, `internal/gcal` verifies the access-token audience against Calnode's configured
+Google client, requires the full Calendar scope, and resolves the primary calendar to
+confirm account identity. Accepted access and refresh tokens enter the existing envelope-
+encrypted `calendar_connections` store and are never returned. This mode assumes Bonnie
+and Calnode use the same Google OAuth client and is intended to remove duplicate consent,
+not to create a new end-user token API.
 
 **Per-provider notes.**
 - *Google* (`internal/gcal`): Meet via `conferenceData.createRequest` +

@@ -47,6 +47,7 @@ type Handler struct {
 	livekitMu         sync.RWMutex
 	livekit           *livekit.Client // nil when LiveKit video is unconfigured
 	demoMode          bool            // true on the public demo instance: disables calendar/Zoom connect
+	bonnieManagedMode bool            // true when Bonnie owns Google consent and provisions calendar credentials
 	demoResetInterval time.Duration
 	demoMu            sync.RWMutex
 	demoNextResetAt   time.Time
@@ -182,6 +183,12 @@ func (h *Handler) SetDataDir(dir string) {
 // GET /v1/auth/status. Never set this on a real deployment.
 func (h *Handler) SetDemoMode(v bool) {
 	h.demoMode = v
+}
+
+// SetBonnieManagedMode makes Bonnie the only Google-consent surface. Calendar
+// credentials must then arrive through the API-key-only managed endpoint.
+func (h *Handler) SetBonnieManagedMode(v bool) {
+	h.bonnieManagedMode = v
 }
 
 // SetDemoResetInterval records how often the demo wipes and re-seeds, purely
