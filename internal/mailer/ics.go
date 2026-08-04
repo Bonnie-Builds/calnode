@@ -24,10 +24,12 @@ func BuildICS(d BookingData, method string) []byte {
 	var b strings.Builder
 	writeICSLine(&b, "BEGIN:VCALENDAR")
 	writeICSLine(&b, "VERSION:2.0")
-	writeICSLine(&b, "PRODID:-//Calnode//Booking//EN")
+	writeICSLine(&b, "PRODID:-//Bonnie//Booking//EN")
 	writeICSLine(&b, "CALSCALE:GREGORIAN")
 	writeICSLine(&b, "METHOD:"+method)
 	writeICSLine(&b, "BEGIN:VEVENT")
+	// Keep the historical UID domain stable so updates and cancellations continue
+	// targeting calendar events created before the Bonnie branding cutover.
 	writeICSLine(&b, "UID:"+d.BookingID+"@calnode")
 	writeICSLine(&b, fmt.Sprintf("SEQUENCE:%d", d.ICSSequence))
 	writeICSLine(&b, "DTSTAMP:"+stamp)

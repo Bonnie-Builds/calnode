@@ -81,7 +81,7 @@
 	onConfirm={doRevoke}
 />
 
-<svelte:head><title>API Keys — Calnode</title></svelte:head>
+<svelte:head><title>API Keys — Bonnie</title></svelte:head>
 
 <div class="mb-8 flex items-center justify-between">
 	<div>

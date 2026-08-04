@@ -75,8 +75,8 @@ func TestRenderHTML_allTemplates(t *testing.T) {
 }
 
 func TestBookingData_Brand(t *testing.T) {
-	if got := (BookingData{}).Brand(); got != "Calnode" {
-		t.Errorf("Brand() empty = %q; want Calnode", got)
+	if got := (BookingData{}).Brand(); got != "Bonnie" {
+		t.Errorf("Brand() empty = %q; want Bonnie", got)
 	}
 	if got := (BookingData{BrandName: "Acme"}).Brand(); got != "Acme" {
 		t.Errorf("Brand() set = %q; want Acme", got)

@@ -241,7 +241,7 @@ func TestSubjectOverride_defaultWhenEmpty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func smtpForTest() *SMTP {
-	return &SMTP{from: "noreply@example.com", fromName: "Calnode"}
+	return &SMTP{from: "noreply@example.com", fromName: "Bonnie"}
 }
 
 func TestBuildRaw_subjectInjectionPrevented(t *testing.T) {
@@ -315,7 +315,7 @@ func TestBuildRaw_fromNameFormatted(t *testing.T) {
 	msg := Message{To: []string{"x@example.com"}, Subject: "Hi", Text: "body"}
 	raw := string(s.buildRaw(msg))
 
-	if !strings.Contains(raw, "Calnode") {
+	if !strings.Contains(raw, "Bonnie") {
 		t.Error("From: header missing sender name")
 	}
 	if !strings.Contains(raw, "noreply@example.com") {

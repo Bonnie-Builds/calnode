@@ -37,7 +37,7 @@ type BookingData struct {
 	AttachICS   bool
 	ICSSequence int
 	// Branding — instance-wide, threaded in by the handler. BrandName is the
-	// wordmark/footer name (falls back to "Calnode" when empty); LogoURL is an
+	// wordmark/footer name (falls back to "Bonnie" when empty); LogoURL is an
 	// optional absolute https image shown in the HTML email header.
 	BrandName   string
 	LogoURL     string
@@ -54,7 +54,7 @@ func (d BookingData) Brand() string {
 	if d.BrandName != "" {
 		return d.BrandName
 	}
-	return "Calnode"
+	return "Bonnie"
 }
 
 // LogoPx is the email logo height in px, defaulting to 28 when unset.
@@ -390,7 +390,7 @@ To cancel, visit:
 ---
 {{.CustomNote}}
 {{end}}
-— Calnode
+— {{.Brand}}
 `))
 
 var confirmHostTmpl = template.Must(template.New("confirm-host").Parse(
@@ -406,7 +406,7 @@ Location: {{.LocationValue}}{{end}}
 
 Booking reference: {{.BookingID}}
 
-— Calnode
+— {{.Brand}}
 `))
 
 var cancelOrgTmpl = template.Must(template.New("cancel-org").Parse(
@@ -426,7 +426,7 @@ To rebook, visit:
 ---
 {{.CustomNote}}
 {{end}}
-— Calnode
+— {{.Brand}}
 `))
 
 var cancelHostTmpl = template.Must(template.New("cancel-host").Parse(
@@ -442,7 +442,7 @@ Reason:   {{.CancellationReason}}{{end}}
 
 Booking reference: {{.BookingID}}
 
-— Calnode
+— {{.Brand}}
 `))
 
 var rescheduleOrgTmpl = template.Must(template.New("reschedule-org").Parse(
@@ -469,7 +469,7 @@ To reschedule or cancel again, visit:
 ---
 {{.CustomNote}}
 {{end}}
-— Calnode
+— {{.Brand}}
 `))
 
 var rescheduleHostTmpl = template.Must(template.New("reschedule-host").Parse(
@@ -486,7 +486,7 @@ Location: {{.LocationValue}}{{end}}
 
 Booking reference: {{.BookingID}}
 
-— Calnode
+— {{.Brand}}
 `))
 
 var reminderOrgTmpl = template.Must(template.New("reminder-org").Parse(
@@ -512,5 +512,5 @@ To reschedule or cancel, visit:
 ---
 {{.CustomNote}}
 {{end}}
-— Calnode
+— {{.Brand}}
 `))

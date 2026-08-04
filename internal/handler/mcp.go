@@ -23,7 +23,7 @@ import (
 func (h *Handler) MCPServer() *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "calnode",
-		Title:   "Calnode booking",
+		Title:   "Bonnie booking",
 		Version: buildinfo.Get().Version,
 	}, nil)
 

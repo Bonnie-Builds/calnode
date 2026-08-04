@@ -156,7 +156,7 @@
 
 <ConfirmDialog bind:open={confirmOpen} title={confirmTitle} description={confirmDescription} confirmText="Delete" destructive onConfirm={() => pendingAction?.()} />
 
-<svelte:head><title>Teams — Calnode</title></svelte:head>
+<svelte:head><title>Teams — Bonnie</title></svelte:head>
 
 <div class="mb-8 flex items-center justify-between">
 	<div>

@@ -26,11 +26,17 @@ import (
 // cache-busting ?v=<unix> so re-uploads aren't masked by email/browser caching.
 const logoServePath = "/branding/logo"
 
+const (
+	defaultBrandName    = "Bonnie"
+	defaultBrandLogoURL = "/favicon.svg"
+)
+
 // brandingSettings is the instance-wide brand identity used in emails and on the
-// public booking/manage pages.
+// public booking/manage pages. Empty operator fields resolve to Bonnie defaults;
+// explicitly configured operator values always win.
 type brandingSettings struct {
 	BusinessName string
-	LogoURL      string // served path (relative), e.g. "/branding/logo?v=123"; empty = no logo
+	LogoURL      string // served path (relative), e.g. "/branding/logo?v=123"; empty = text wordmark
 	LogoHeight   int    // email logo height in px (pages scale up); see pageLogoHeight
 	LogoOpacity  int    // 20–100; CSS opacity for a subtle logo. 100 = fully opaque
 	PrivacyURL   string // operator's Privacy Policy URL (absolute http[s]); "" = hidden
@@ -50,6 +56,13 @@ func (h *Handler) loadBranding(ctx context.Context) brandingSettings {
 	}
 	if b.LogoOpacity <= 0 || b.LogoOpacity > 100 {
 		b.LogoOpacity = 100
+	}
+	operatorNameConfigured := b.BusinessName != ""
+	if !operatorNameConfigured {
+		b.BusinessName = defaultBrandName
+	}
+	if !operatorNameConfigured && b.LogoURL == "" {
+		b.LogoURL = defaultBrandLogoURL
 	}
 	return b
 }

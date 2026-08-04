@@ -1,7 +1,7 @@
 -- +goose Up
 -- Branding (instance-wide, on the singleton row):
 --   business_name  display name used as the wordmark in emails and on the public
---                  booking/manage pages. Falls back to "Calnode" when empty.
+--                  booking/manage pages. Falls back to "Bonnie" when empty.
 --   logo_url       absolute https URL to a logo image, shown in the email header
 --                  and the public page header. Empty = text wordmark only.
 ALTER TABLE server_settings ADD COLUMN business_name TEXT NOT NULL DEFAULT '';

@@ -22,7 +22,7 @@
 	let smtpTLS = $state(false);
 	let smtpStartTLS = $state(true);
 	let emailFrom = $state('');
-	let emailFromName = $state('Calnode');
+	let emailFromName = $state('Bonnie');
 
 	let userEmail = $state('');
 
@@ -39,7 +39,7 @@
 		smtpTLS = email.smtp_tls;
 		smtpStartTLS = email.smtp_starttls;
 		emailFrom = email.email_from;
-		emailFromName = email.email_from_name || 'Calnode';
+		emailFromName = email.email_from_name || 'Bonnie';
 	}, 'Could not load email settings'));
 
 	async function save() {
@@ -130,7 +130,7 @@
 					</div>
 					<div class="space-y-1.5">
 						<Label for="email-from-name">From name</Label>
-						<Input id="email-from-name" type="text" placeholder="Calnode" bind:value={emailFromName} />
+						<Input id="email-from-name" type="text" placeholder="Bonnie" bind:value={emailFromName} />
 					</div>
 				</div>
 

@@ -99,12 +99,12 @@
   {{if .PrivacyURL}}<a href="{{.PrivacyURL}}" target="_blank" rel="noopener noreferrer">Privacy</a>{{end}}  <!-- nosemgrep: generic.html-templates.security.var-in-href.var-in-href -->
   {{if .TermsURL}}<a href="{{.TermsURL}}" target="_blank" rel="noopener noreferrer">Terms</a>{{end}}  <!-- nosemgrep: generic.html-templates.security.var-in-href.var-in-href -->
   {{if or .GTMContainerID .GA4MeasurementID}}<button type="button" class="cookie-link" onclick="window.__calnodeOpenConsent && window.__calnodeOpenConsent()">Cookie settings</button>{{end}}
-  <a href="https://calnode.com" target="_blank" rel="noopener noreferrer">Calnode</a>
+  <a href="https://bonniebuilds.com" target="_blank" rel="noopener noreferrer">Bonnie</a>
 </footer>{{end}}
 
 {{define "demoNoindex"}}{{if .DemoMode}}<meta name="robots" content="noindex,nofollow">{{end}}{{end}}
 
-{{define "demoBanner"}}{{if .DemoMode}}<div class="demo-banner"><strong>Public demo</strong> — data here is visible to everyone and resets automatically. Don't enter anything private. <a href="https://github.com/Calnode/calnode" target="_blank" rel="noopener noreferrer">View source</a></div>{{end}}{{end}}
+{{define "demoBanner"}}{{if .DemoMode}}<div class="demo-banner"><strong>Public demo</strong> — data here is visible to everyone and resets automatically. Don't enter anything private. <a href="https://github.com/Bonnie-Builds/calnode" target="_blank" rel="noopener noreferrer">View source</a></div>{{end}}{{end}}
 
 {{/* Month nav + the day grid. The grid (#cal) is empty here and filled by
      booking-logic.js. Each page wraps this in its own <section> (book shows it

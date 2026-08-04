@@ -116,7 +116,7 @@ func (h *Handler) AuthorizeMCP(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, dest, http.StatusFound)
 			return
 		}
-		http.Error(w, "Please sign in to the Calnode admin in this browser, then start the connection again.", http.StatusUnauthorized)
+		http.Error(w, "Please sign in to the Bonnie admin in this browser, then start the connection again.", http.StatusUnauthorized)
 		return
 	}
 

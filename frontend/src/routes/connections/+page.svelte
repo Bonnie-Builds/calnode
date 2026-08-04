@@ -55,7 +55,7 @@
 	onConfirm={doRevoke}
 />
 
-<svelte:head><title>Connected apps — Calnode</title></svelte:head>
+<svelte:head><title>Connected apps — Bonnie</title></svelte:head>
 
 <div class="mb-8">
 	<h1 class="text-2xl font-semibold tracking-tight">Connected apps</h1>

@@ -8,7 +8,7 @@ CREATE TABLE server_settings (
     smtp_tls        INTEGER NOT NULL DEFAULT 0,
     smtp_starttls   INTEGER NOT NULL DEFAULT 1,
     email_from      TEXT    NOT NULL DEFAULT '',
-    email_from_name TEXT    NOT NULL DEFAULT 'Calnode',
+    email_from_name TEXT    NOT NULL DEFAULT 'Bonnie',
     updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 -- Seed the single row so UPDATE statements always find it.

@@ -97,7 +97,7 @@
 						Click <span class="font-medium">Create</span>. Copy the Client ID and Client Secret shown.
 						{#if !isLocal}
 							<p class="mt-1.5 text-xs text-muted-foreground">
-								If you also run Calnode locally, add the
+								If you also run the scheduling service locally, add the
 								<code class="rounded bg-muted px-1">http://localhost:3000/…</code> variants of both URIs too.
 							</p>
 						{/if}
@@ -151,7 +151,7 @@
 					<code class="mt-1 block rounded bg-muted px-2 py-1 text-xs font-mono break-all">{redirectBase}/v1/auth/callback</code>
 					{#if !isLocal}
 						<p class="mt-1.5 text-xs text-muted-foreground">
-							If you also run Calnode locally, add the
+							If you also run the scheduling service locally, add the
 							<code class="rounded bg-muted px-1">http://localhost:3000/…</code> variants too.
 						</p>
 					{/if}

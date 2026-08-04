@@ -3,8 +3,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: 📖 Documentation & setup guide
-    url: https://github.com/Calnode/calnode#readme
+    url: https://github.com/Bonnie-Builds/calnode#readme
     about: Installation, configuration and how-to. Most questions are answered here — please check first.
   - name: 💬 Questions, setup help & ideas
-    url: https://github.com/Calnode/calnode/discussions
+    url: https://github.com/Bonnie-Builds/calnode/discussions
     about: For "how do I…", deployment help, or feature ideas, use Discussions. The issue tracker is for confirmed bugs only.

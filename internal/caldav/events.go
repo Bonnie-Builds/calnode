@@ -136,10 +136,12 @@ func buildICS(id string, start, end time.Time, summary, description, location, o
 	w := func(line string) { b.WriteString(foldLine(line)); b.WriteString("\r\n") }
 	w("BEGIN:VCALENDAR")
 	w("VERSION:2.0")
-	w("PRODID:-//Calnode//Booking//EN")
+	w("PRODID:-//Bonnie//Booking//EN")
 	w("CALSCALE:GREGORIAN")
 	w("METHOD:REQUEST")
 	w("BEGIN:VEVENT")
+	// Keep the historical UID domain stable so existing remote events remain
+	// addressable across the Bonnie branding cutover.
 	w("UID:" + id + "@calnode")
 	w("DTSTAMP:" + icsUTC(time.Now()))
 	w("DTSTART:" + icsUTC(start))

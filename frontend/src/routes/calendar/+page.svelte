@@ -210,7 +210,7 @@
 <ConfirmDialog
 	bind:open={disconnectOpen}
 	title="Disconnect this calendar?"
-	description="Calnode will stop checking it for conflicts. If it was your booking calendar, another connected calendar is promoted automatically."
+	description="Bonnie will stop checking it for conflicts. If it was your booking calendar, another connected calendar is promoted automatically."
 	confirmText="Disconnect"
 	destructive
 	onConfirm={doDisconnect}
@@ -225,7 +225,7 @@
 	onConfirm={doZoomDisconnect}
 />
 
-<svelte:head><title>Calendar — Calnode</title></svelte:head>
+<svelte:head><title>Calendar — Bonnie</title></svelte:head>
 
 <div class="mb-8">
 	<h1 class="text-2xl font-semibold tracking-tight">Calendar</h1>

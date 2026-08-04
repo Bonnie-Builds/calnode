@@ -12,7 +12,7 @@ func TestBuildICS_request(t *testing.T) {
 	got := string(BuildICS(d, "REQUEST"))
 
 	for _, want := range []string{
-		"BEGIN:VCALENDAR", "VERSION:2.0", "METHOD:REQUEST",
+		"BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Bonnie//Booking//EN", "METHOD:REQUEST",
 		"BEGIN:VEVENT", "UID:01J4TEST@calnode", "SEQUENCE:0",
 		"DTSTART:20260615T090000Z", "DTEND:20260615T093000Z",
 		"SUMMARY:30-Minute Call", "STATUS:CONFIRMED",

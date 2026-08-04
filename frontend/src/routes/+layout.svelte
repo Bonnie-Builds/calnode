@@ -18,8 +18,8 @@
 	let reportOpen = $state(false);
 	let recordingsConfigured = $state(false);
 
-	const ISSUES_URL = 'https://github.com/Calnode/calnode/issues';
-	const NEW_ISSUE_URL = 'https://github.com/Calnode/calnode/issues/new/choose';
+	const ISSUES_URL = 'https://github.com/Bonnie-Builds/calnode/issues';
+	const NEW_ISSUE_URL = 'https://github.com/Bonnie-Builds/calnode/issues/new/choose';
 
 	const isLogin = $derived($page.route.id === '/login');
 	const isPublicRoute = $derived(
@@ -271,7 +271,7 @@
 				<Dialog.Title>Report an issue</Dialog.Title>
 				<Dialog.Description>
 					Please <strong>search the existing issues first</strong> — it may already be reported or being
-					worked on. The tracker is for <strong>reproducible bugs</strong> in Calnode; for setup help or
+					worked on. The tracker is for <strong>reproducible bugs</strong> in Bonnie; for setup help or
 					“how do I…” questions, please use Discussions instead.
 				</Dialog.Description>
 			</Dialog.Header>

@@ -124,7 +124,7 @@ func (h *Handler) PatchEmailSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.EmailFromName == "" {
-		req.EmailFromName = "Calnode"
+		req.EmailFromName = "Bonnie"
 	}
 
 	boolToInt := func(b bool) int {
@@ -223,8 +223,8 @@ func (h *Handler) TestEmailConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.mailer.Send(r.Context(), mailer.Message{
 		To:      []string{user.Email},
-		Subject: "[TEST] Calnode email configuration",
-		Text:    "This is a test email from Calnode. If you received this, your SMTP settings are working correctly.",
+		Subject: "[TEST] Bonnie email configuration",
+		Text:    "This is a test email from Bonnie. If you received this, your SMTP settings are working correctly.",
 	}); err != nil {
 		h.logger.ErrorContext(r.Context(), "email connection test: send", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "failed to send test email")
