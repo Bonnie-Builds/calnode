@@ -248,6 +248,18 @@ body {
   const EVENT_NAME = {{.Name}};
   let TZ         = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+  // Reusable-link correlation: read the opaque #bnc= fragment once into ephemeral
+  // memory, immediately strip it from the visible URL/history, and forward it only
+  // in the booking POST. Absent/unknown values are inert.
+  let CORRELATION_REF = '';
+  (function () {
+    try {
+      var m = window.location.hash.match(/[#&]bnc=([A-Za-z0-9_-]+)/);
+      if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search);
+      if (m && m[1]) CORRELATION_REF = m[1];
+    } catch (e) { /* replaceState can throw in rare sandboxed frames; correlation stays empty */ }
+  })();
+
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const maxDate = MAX_DAYS > 0 ? new Date(today.getTime() + MAX_DAYS * 86400000) : null;
 
@@ -579,6 +591,7 @@ body {
           email: form.email.value.trim(),
           timezone: TZ,
           company: form.company.value,
+          correlation_ref: CORRELATION_REF,
           answers,
         }),
       });

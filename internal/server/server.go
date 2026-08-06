@@ -44,6 +44,18 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	h.SetEncKey(cfg.EncryptionKey)
 	h.SetDemoMode(cfg.DemoMode)
 	h.SetBonnieManagedMode(cfg.BonnieManagedMode)
+	h.SetManagedIdentityConfig(handler.ManagedIdentityConfig{
+		Issuer:        cfg.BonnieManagedIssuer,
+		CompanyRef:    cfg.BonnieManagedCompany,
+		JWKSURL:       cfg.BonnieManagedJWKSURL,
+		JWKS:          cfg.BonnieManagedJWKS,
+		AllowedKids:   cfg.BonnieManagedAllowedKids,
+		OperatorKey:   cfg.BonnieManagedOperatorKey,
+		EntryPath:     cfg.BonnieManagedEntryPath,
+		LoginRedirect: cfg.BonnieManagedLoginRedirect,
+		SessionTTL:    cfg.BonnieManagedSessionTTL,
+		PublicBaseURL: cfg.PublicBaseURL,
+	})
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
 
 	if cfg.DemoMode {
@@ -286,6 +298,19 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.HandleFunc("GET /v1/auth/microsoft/callback", authRL(h.CallbackMicrosoft))
 	mux.HandleFunc("POST /v1/auth/logout", h.Logout)
 
+	// Bonnie-managed identity exchange (public, rate-limited like login). In
+	// managed mode this is the ONLY tenant browser-entry surface.
+	if cfg.BonnieManagedMode {
+		managedExchangeRL := RateLimit(10, time.Minute)
+		mux.HandleFunc("POST /v1/auth/managed/exchange", managedExchangeRL(h.ManagedExchange))
+
+		// Operator-key-only managed member lifecycle. These authenticate via
+		// X-Operator-Key, never a browser session or member API key.
+		mux.HandleFunc("POST /v1/managed/members", h.RequireManagedOperator(h.ManagedEnsureMember))
+		mux.HandleFunc("POST /v1/managed/members/{sub}/archive", h.RequireManagedOperator(h.ManagedArchiveMember))
+		mux.HandleFunc("POST /v1/managed/members/{sub}/reactivate", h.RequireManagedOperator(h.ManagedReactivateMember))
+	}
+
 	// MCP server (Model Context Protocol) — Streamable HTTP transport for remote
 	// agents. One server instance reused across requests. Guarded by a bearer token:
 	// an OAuth access token (the "Connect" flow) or a cno_ API key, both resolved by
@@ -437,7 +462,7 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	// a non-simple request, so the OPTIONS preflight is handled too.
 	mux.HandleFunc("POST /v1/bookings", cors(bookingRL(h.CreateBooking)))
 	mux.HandleFunc("OPTIONS /v1/bookings", cors(func(http.ResponseWriter, *http.Request) {}))
-	mux.HandleFunc("GET /v1/bookings/{id}", h.GetBooking)
+	mux.HandleFunc("GET /v1/bookings/{id}", h.RequireAuth(h.GetBooking))
 	mux.HandleFunc("GET /v1/bookings", h.RequireAuth(h.ListBookings))
 	mux.HandleFunc("POST /v1/bookings/{id}/cancel", h.RequireAuth(h.CancelBooking))
 	mux.HandleFunc("PATCH /v1/bookings/{id}/reschedule", h.RequireAuth(h.RescheduleBooking))
@@ -529,18 +554,21 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.Handle("GET /favicon.ico", favicon)
 
 	// Admin SPA — served at /admin/* with SPA fallback for client-side routing.
+	// In managed mode the SPA guard redirects unauthenticated browsers to the
+	// Bonnie launch surface instead of the native login page.
 	adminSPA := frontend.Handler()
 	mux.Handle("GET /admin", http.RedirectHandler("/admin/", http.StatusMovedPermanently))
-	mux.Handle("/admin/", http.StripPrefix("/admin", adminSPA))
+	mux.Handle("/admin/", http.StripPrefix("/admin", h.ManagedSPAGuard(adminSPA)))
 
 	// Bare root → admin. The `{$}` anchor matches ONLY the exact path "/", so it
 	// stays a no-op for every other unmatched path (those still 404). Public
 	// visitors always arrive via a full /book/{slug} link, so this only affects
-	// an operator landing on the domain root. 302 (not 301) so it isn't cached
-	// permanently if a marketing landing page is ever added here.
-	mux.Handle("GET /{$}", http.RedirectHandler("/admin/", http.StatusFound))
+	// an operator landing on the domain root. In managed mode an unauthenticated
+	// browser is sent to the Bonnie launch surface instead. 302 (not 301) so it
+	// isn't cached permanently if a marketing landing page is ever added here.
+	mux.Handle("GET /{$}", http.HandlerFunc(h.ManagedRoot))
 
-	return RequestID(Logging(logger, SameOriginCheck(mux))), drain
+	return RequestID(Logging(logger, SameOriginCheck(h.ManagedDenyMiddleware(mux)))), drain
 }
 
 // syncSMTPToDB mirrors deployment-owned SMTP settings into the database for the

@@ -66,6 +66,30 @@ type Config struct {
 	// DemoResetInterval is how often DemoMode wipes and re-seeds the DB. Configurable
 	// (not hardcoded to 30m) so local verification doesn't require waiting half an hour.
 	DemoResetInterval time.Duration
+
+	// Bonnie-managed identity contract (BONNIE_MANAGED_MODE).
+	//
+	BonnieManagedIssuer string
+	// BonnieManagedCompany is the exact canonical Bonnie company ref accepted in the assertion.
+	BonnieManagedCompany string
+	// BonnieManagedJWKSURL is a URL the fork fetches to obtain Bonnie's versioned
+	// public JWKS (Ed25519 verification keys). Mutually exclusive with a static
+	// inline document.
+	BonnieManagedJWKSURL string
+	// BonnieManagedJWKS is an inline JSON JWKS document (public keys only).
+	BonnieManagedJWKS string
+	// BonnieManagedAllowedKids is the allowlist of accepted `kid` values (comma-separated).
+	BonnieManagedAllowedKids []string
+	// BonnieManagedOperatorKey is the secret shared with Bonbon's operator for the
+	// managed member ensure/archive/reactivate endpoints. Never an API key or session.
+	BonnieManagedOperatorKey string
+	// BonnieManagedEntryPath is the allowlisted 303 target after a successful exchange.
+	BonnieManagedEntryPath string
+	// BonnieManagedLoginRedirect is where an unauthenticated managed-mode browser is
+	// sent when it reaches the scheduler root without a session.
+	BonnieManagedLoginRedirect string
+	// BonnieManagedSessionTTL bounds managed browser sessions (default 1h).
+	BonnieManagedSessionTTL time.Duration
 }
 
 func Load() *Config {
@@ -129,6 +153,15 @@ func Load() *Config {
 	cfg.CookieSecure = getBool("COOKIE_SECURE", strings.HasPrefix(cfg.BaseURL, "https://"))
 	cfg.DemoMode = getBool("DEMO_MODE", false)
 	cfg.BonnieManagedMode = getBool("BONNIE_MANAGED_MODE", false)
+	cfg.BonnieManagedIssuer = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_ISSUER"))
+	cfg.BonnieManagedCompany = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_COMPANY"))
+	cfg.BonnieManagedJWKSURL = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_JWKS_URL"))
+	cfg.BonnieManagedJWKS = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_JWKS"))
+	cfg.BonnieManagedAllowedKids = splitCSV(os.Getenv("BONNIE_MANAGED_ALLOWED_KIDS"))
+	cfg.BonnieManagedOperatorKey = os.Getenv("BONNIE_MANAGED_OPERATOR_KEY")
+	cfg.BonnieManagedEntryPath = getEnv("BONNIE_MANAGED_ENTRY_PATH", "/")
+	cfg.BonnieManagedLoginRedirect = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_LOGIN_REDIRECT"))
+	cfg.BonnieManagedSessionTTL = getDuration("BONNIE_MANAGED_SESSION_TTL", time.Hour)
 	cfg.DemoResetInterval = getDuration("DEMO_RESET_INTERVAL", 30*time.Minute)
 
 	return cfg

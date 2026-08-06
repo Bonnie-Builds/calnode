@@ -66,9 +66,31 @@ func TestBuildData_omitsEmptyOptionalEvenWhenSelected(t *testing.T) {
 	}
 }
 
+func TestBuildData_includesCorrelationWhenPresent(t *testing.T) {
+	bd := enrichedBooking{core: BookingPayload{
+		ID: "b1", Status: "confirmed",
+		CorrelationRef: "bnc-meeting-demo-0001-abcdefghijklmnopqrstuvwxyz",
+	}}
+	d := buildData(bd, defaultFields)
+	if d[FieldCorrelationRef] != "bnc-meeting-demo-0001-abcdefghijklmnopqrstuvwxyz" {
+		t.Errorf("correlation_ref should be present in default payload, got %v", d[FieldCorrelationRef])
+	}
+}
+
+func TestBuildData_omitsEmptyCorrelation(t *testing.T) {
+	bd := enrichedBooking{core: BookingPayload{ID: "b1", Status: "confirmed"}}
+	d := buildData(bd, []string{FieldID, FieldCorrelationRef})
+	if _, ok := d[FieldCorrelationRef]; ok {
+		t.Error("empty correlation_ref should be omitted")
+	}
+	if _, ok := d[FieldID]; !ok {
+		t.Error("id should be present")
+	}
+}
+
 func TestValidFields_dropsUnknown(t *testing.T) {
-	got := ValidFields([]string{"id", "bogus", "attendee_email", ""})
-	if len(got) != 2 || got[0] != "id" || got[1] != "attendee_email" {
-		t.Errorf("ValidFields = %v; want [id attendee_email]", got)
+	got := ValidFields([]string{"id", "bogus", "attendee_email", "", "correlation_ref"})
+	if len(got) != 3 || got[0] != "id" || got[1] != "attendee_email" || got[2] != "correlation_ref" {
+		t.Errorf("ValidFields = %v; want [id attendee_email correlation_ref]", got)
 	}
 }

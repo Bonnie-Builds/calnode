@@ -52,6 +52,10 @@ type Handler struct {
 	demoResetInterval time.Duration
 	demoMu            sync.RWMutex
 	demoNextResetAt   time.Time
+
+	managedMu       sync.RWMutex
+	managedIdentity managedIdentityConfig
+	managedJWKS     *jwksSet // parsed verification keys; nil until configured
 }
 
 // SetLiveKit swaps the active LiveKit client (nil disables built-in video rooms).
@@ -202,6 +206,28 @@ func (h *Handler) SetDemoMode(v bool) {
 // credentials must then arrive through the API-key-only managed endpoint.
 func (h *Handler) SetBonnieManagedMode(v bool) {
 	h.bonnieManagedMode = v
+}
+
+// SetManagedIdentityConfig records the frozen Bonnie-managed identity contract:
+// exact issuer/company/audience, the pinned JWKS (URL or inline), the allowlisted
+// kids, the operator key, and the entry/login redirect paths. It parses the JWKS
+// once; verification also supports live JWKS URL refresh per request.
+func (h *Handler) SetManagedIdentityConfig(cfg ManagedIdentityConfig) {
+	h.managedMu.Lock()
+	defer h.managedMu.Unlock()
+	h.managedIdentity = managedIdentityConfig{
+		issuer:        cfg.Issuer,
+		companyRef:    cfg.CompanyRef,
+		jwksURL:       cfg.JWKSURL,
+		jwksInline:    cfg.JWKS,
+		allowedKids:   cfg.AllowedKids,
+		operatorKey:   cfg.OperatorKey,
+		entryPath:     cfg.EntryPath,
+		loginRedirect: cfg.LoginRedirect,
+		sessionTTL:    cfg.SessionTTL,
+		publicBaseURL: cfg.PublicBaseURL,
+	}
+	h.managedJWKS = parseJWKS(cfg.JWKS)
 }
 
 // SetDemoResetInterval records how often the demo wipes and re-seeds, purely

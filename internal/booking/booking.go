@@ -28,6 +28,9 @@ type Booking struct {
 	PaymentStatus      string // none | pending | paid | refunded
 	AmountPaidCents    int
 	AmountPaidCurrency string
+	// CorrelationRef is the opaque, non-authorizing reusable-link fragment ref.
+	// Empty when the booker did not arrive through a Bonnie correlation link.
+	CorrelationRef string
 }
 
 // Attendee is a participant in a booking (the person who made the booking).
@@ -72,4 +75,8 @@ type CreateParams struct {
 	// MaxActivePerInvitee caps how many active (upcoming, non-cancelled) bookings
 	// the organizer's email may already hold for this event type. 0 = unlimited.
 	MaxActivePerInvitee int
+	// CorrelationRef is the opaque, non-authorizing reusable-link fragment ref
+	// copied verbatim onto the booking row. Empty/absent/unknown/duplicate is
+	// never fatal to the provider booking.
+	CorrelationRef string
 }

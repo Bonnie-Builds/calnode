@@ -535,6 +535,7 @@ type bookingJSON struct {
 	PaymentStatus      string         `json:"payment_status,omitempty" jsonschema:"payment state for paid event types: paid, refunded, or pending; absent for free bookings"`
 	AmountPaidCents    int            `json:"amount_paid_cents,omitempty" jsonschema:"amount charged in minor units (e.g. cents); absent for free bookings"`
 	AmountPaidCurrency string         `json:"amount_paid_currency,omitempty" jsonschema:"ISO 4217 currency of the charge (lowercase)"`
+	CorrelationRef     string         `json:"correlation_ref,omitempty" jsonschema:"opaque non-authorizing reusable-link correlation ref; absent when the booker did not arrive through a Bonnie correlation link"`
 	Attendees          []attendeeJSON `json:"attendees,omitempty"`
 	Hosts              []hostBrief    `json:"hosts,omitempty"` // assigned host(s) for display; set on the public create response
 }
@@ -565,6 +566,7 @@ func toBookingJSON(b *booking.Booking) bookingJSON {
 		j.AmountPaidCents = b.AmountPaidCents
 		j.AmountPaidCurrency = b.AmountPaidCurrency
 	}
+	j.CorrelationRef = b.CorrelationRef
 	return j
 }
 
@@ -613,13 +615,14 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		EventTypeSlug string `json:"event_type_slug"`
-		StartAt       string `json:"start_at"`
-		Name          string `json:"name"`
-		Email         string `json:"email"`
-		Timezone      string `json:"timezone"`
-		Company       string `json:"company"` // honeypot: a hidden form field; must stay empty
-		Answers       []struct {
+		EventTypeSlug  string `json:"event_type_slug"`
+		StartAt        string `json:"start_at"`
+		Name           string `json:"name"`
+		Email          string `json:"email"`
+		Timezone       string `json:"timezone"`
+		Company        string `json:"company"` // honeypot: a hidden form field; must stay empty
+		CorrelationRef string `json:"correlation_ref"`
+		Answers        []struct {
 			QuestionID string `json:"question_id"`
 			Value      string `json:"value"`
 		} `json:"answers"`
@@ -688,6 +691,15 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	if req.Timezone == "" {
 		req.Timezone = "UTC"
 	}
+
+	// Reusable-link correlation: the fragment ref is opaque and non-authorizing.
+	// An absent/unknown/duplicate/malformed value never blocks the provider
+	// booking — it simply cannot correlate to a canonical Meeting.
+	correlationRef := strings.TrimSpace(req.CorrelationRef)
+	if correlationRef != "" && !validCorrelationRef(correlationRef) {
+		correlationRef = ""
+	}
+	_ = correlationRef // passed to CreateParams below
 
 	startAt, err := time.Parse(time.RFC3339, req.StartAt)
 	if err != nil {
@@ -771,6 +783,7 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		},
 		Answers:             answers,
 		MaxActivePerInvitee: et.MaxActiveBookings,
+		CorrelationRef:      correlationRef,
 	})
 	if err != nil {
 		if errors.Is(err, booking.ErrDoubleBooked) {
@@ -1128,6 +1141,7 @@ func (h *Handler) dispatchBookingConfirmation(b *booking.Booking, in bookingConf
 			PaymentStatus:      paymentStatusForWebhook(b.PaymentStatus),
 			AmountPaidCents:    b.AmountPaidCents,
 			AmountPaidCurrency: b.AmountPaidCurrency,
+			CorrelationRef:     b.CorrelationRef,
 		}); err != nil {
 			h.logger.Error("enqueue booking.created webhook", "error", err, "booking_id", b.ID)
 		}
@@ -1137,7 +1151,7 @@ func (h *Handler) dispatchBookingConfirmation(b *booking.Booking, in bookingConf
 	}
 }
 
-// GetBooking handles GET /v1/bookings/{id} (public — accessible with just the booking ID).
+// GetBooking handles authenticated GET /v1/bookings/{id}.
 func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	b, err := h.bookingSvc.Get(r.Context(), id)
@@ -1653,6 +1667,21 @@ func (h *Handler) loadHostPrefs(ctx context.Context, hostID string) (hostPrefs, 
 // isForeignKeyViolation reports whether err is a SQLite FOREIGN KEY constraint failure.
 func isForeignKeyViolation(err error) bool {
 	return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
+}
+
+// validCorrelationRef validates the opaque reusable-link correlation ref shape:
+// 16-64 chars of [A-Za-z0-9_-]. Absent/invalid values are dropped by the caller
+// and never fail the provider booking.
+func validCorrelationRef(ref string) bool {
+	if len(ref) < 16 || len(ref) > maxCorrelationLen {
+		return false
+	}
+	for _, c := range ref {
+		if !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '_' && c != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // enqueueReminder inserts a reminder.send job scheduled hoursBefore hours before startAt.

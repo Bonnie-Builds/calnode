@@ -99,6 +99,7 @@
 			href: `${base}/connections`,
 			label: 'Connected apps',
 			adminOnly: false,
+			managedDeny: true,
 			icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>`
 		},
 		{
@@ -106,6 +107,7 @@
 			href: `${base}/webhooks`,
 			label: 'Webhooks',
 			adminOnly: false,
+			managedDeny: true,
 			icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`
 		},
 		{
@@ -122,6 +124,7 @@
 			(item) =>
 				(!item.adminOnly || $currentUser?.is_admin) &&
 				!($authStatus.demo_mode && item.label === 'Calendar') &&
+				!(item.managedDeny && $authStatus.managed) &&
 				(item.requiresFeature !== 'recordings' || recordingsConfigured)
 		)
 	);

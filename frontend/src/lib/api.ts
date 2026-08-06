@@ -10,6 +10,7 @@ export type User = {
 	is_admin: boolean;
 	is_owner: boolean;
 	role: 'owner' | 'admin' | 'member';
+	is_managed_member?: boolean; // true for Bonnie-managed session/member projections
 	notify_confirmation: boolean;
 	notify_cancellation: boolean;
 	notify_reschedule: boolean;
