@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>Manage booking — {{.EventTypeName}}{{if .BusinessName}} — {{.BusinessName}}{{end}}</title>
 {{template "demoNoindex" .}}
@@ -39,6 +40,7 @@ body {
   padding: 2.5rem 1rem 2rem;
   gap: 1.25rem;
 }
+html.dark body { background: #0c0d10; color: #e6e6e9; }
 
 /* .powered-by footer styles live in booking.css (shared with the booking page). */
 

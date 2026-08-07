@@ -399,3 +399,115 @@
 }
 .demo-banner strong { font-weight: 600; }
 .demo-banner a { color: inherit; text-decoration: underline; font-weight: 600; }
+
+/* ── Dark mode (Bonnie-managed default) ──────────────────────────────
+   Enabled by the `class="dark"` on the server-rendered booking/manage page
+   <html> root. The embeddable widget does NOT set .dark, so it stays light.
+   Mirrors the admin SPA dark palette (zinc/neutral). */
+html.dark {
+  color-scheme: dark;
+}
+html.dark body { background: #0c0d10; color: #e6e6e9; }
+html.dark .card,
+html.dark .cookie-banner,
+html.dark .slot-card,
+html.dark .manage-card {
+  background: #17181d;
+  border-color: #2a2b32;
+}
+html.dark .info,
+html.dark .cal-col,
+html.dark .right-col {
+  background: #17181d;
+}
+html.dark .info { border-color: #2a2b32; }
+html.dark .host-name,
+html.dark .description,
+html.dark .desc-toggle,
+html.dark .hint,
+html.dark .tz-wrapper,
+html.dark .cal-nav button:disabled,
+html.dark .cd:disabled {
+  color: #a1a1aa;
+}
+html.dark .meta li,
+html.dark .description strong,
+html.dark .cal-nav button,
+html.dark .cal-nav button:hover:not(:disabled),
+html.dark .cd,
+html.dark .cd:hover,
+html.dark .slot-btn,
+html.dark .slot-btn:hover,
+html.dark .slot-label,
+html.dark .slots-header,
+html.dark .back-btn,
+html.dark .back-btn:hover,
+html.dark .powered-by a,
+html.dark .powered-by .cookie-link {
+  color: #e6e6e9;
+}
+html.dark .meta svg,
+html.dark .tz-wrapper svg {
+  color: #6b7280;
+}
+html.dark .cal-col,
+html.dark .right-col,
+html.dark .slot-btn,
+html.dark .slot-btn:hover,
+html.dark .manage-card {
+  border-color: #2a2b32;
+}
+html.dark .cd.available { background: #222329; }
+html.dark .cd.available:hover { background: #2b2c33; }
+html.dark .cd.sel { background: #e6e6e9 !important; color: #0c0d10 !important; }
+html.dark .slot-btn.sel { background: #e6e6e9; color: #0c0d10; border-color: #e6e6e9; }
+html.dark input,
+html.dark select,
+html.dark textarea,
+html.dark .asst-input {
+  background: #0c0d10;
+  border-color: #3a3b42;
+  color: #e6e6e9;
+}
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus {
+  border-color: #6b7280;
+}
+html.dark .btn-secondary,
+html.dark .cookie-btn {
+  background: #17181d;
+  border-color: #3a3b42;
+  color: #e6e6e9;
+}
+html.dark .btn-secondary:hover { background: #222329; }
+html.dark .cookie-btn:hover { background: #222329; }
+html.dark .btn-primary,
+html.dark .cookie-btn-primary {
+  background: #e6e6e9;
+  border-color: #e6e6e9;
+  color: #0c0d10;
+}
+html.dark .btn-primary:hover { background: #f4f4f5; }
+html.dark .cookie-btn-primary:hover { background: #f4f4f5; }
+html.dark .cookie-text,
+html.dark .confirm-times .row-val,
+html.dark .scheduled-time,
+html.dark .section-title,
+html.dark #month-label {
+  color: #e6e6e9;
+}
+html.dark .confirm-times .row-label,
+html.dark .scheduled-label {
+  color: #9ca3af;
+}
+html.dark .powered-by a:hover,
+html.dark .powered-by .cookie-link:hover {
+  color: #fff;
+}
+html.dark .confirm-times .row-val.new { color: #34d399; }
+/* Assistant chat */
+html.dark .asst-panel { background: #17181d; border-color: #2a2b32; }
+html.dark .asst-msg.ok { background: #052e22; color: #6ee7b7; border-color: #065f46; }
+html.dark .asst-msg.bot { background: #222329; color: #e6e6e9; }
+html.dark .asst-send { background: #e6e6e9; color: #0c0d10; }
