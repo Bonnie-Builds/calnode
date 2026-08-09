@@ -530,6 +530,7 @@ type bookingJSON struct {
 	Status             string         `json:"status"`
 	CancellationReason string         `json:"cancellation_reason,omitempty"`
 	LocationValue      string         `json:"location_value,omitempty"`
+	Timezone           string         `json:"timezone,omitempty"`
 	CreatedAt          string         `json:"created_at"`
 	UpdatedAt          string         `json:"updated_at"`
 	PaymentStatus      string         `json:"payment_status,omitempty" jsonschema:"payment state for paid event types: paid, refunded, or pending; absent for free bookings"`
@@ -557,8 +558,9 @@ func toBookingJSON(b *booking.Booking) bookingJSON {
 		Status:             b.Status,
 		CancellationReason: b.CancellationReason,
 		LocationValue:      b.LocationValue,
-		CreatedAt:          b.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:          b.UpdatedAt.UTC().Format(time.RFC3339),
+		Timezone:           b.Timezone,
+		CreatedAt:          b.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:          b.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	// Payment fields are omitted for free bookings (payment_status defaults to 'none').
 	if b.PaymentStatus != "" && b.PaymentStatus != "none" {
@@ -889,6 +891,7 @@ type bookingConfirmationInput struct {
 	OrganizerName     string
 	OrganizerEmail    string
 	OrganizerTimezone string
+	Participants      []booking.Attendee
 }
 
 // hostPrefsOrDefault loads a host's notification prefs, defaulting to allOnPrefs and
@@ -1012,6 +1015,10 @@ func (h *Handler) createHostEventsAndNotify(ctx context.Context, b *booking.Book
 		// the per-host event ID so it can be cancelled later. The primary's id
 		// also lives on the booking row for back-compat.
 		if gc != nil {
+			additionalAttendees := make([]calendar.EventAttendee, 0, len(in.Participants))
+			for _, participant := range in.Participants {
+				additionalAttendees = append(additionalAttendees, calendar.EventAttendee{Name: participant.Name, Email: participant.Email})
+			}
 			eventID, link, err := gc.CreateEvent(ctx, host.UserID, calendar.CreateEventParams{
 				Summary:        in.EventTypeName + " with " + in.OrganizerName,
 				Description:    "Booking ID: " + b.ID,
@@ -1020,6 +1027,7 @@ func (h *Handler) createHostEventsAndNotify(ctx context.Context, b *booking.Book
 				End:            b.EndAt,
 				OrganizerName:  in.OrganizerName,
 				OrganizerEmail: in.OrganizerEmail,
+				Attendees:      additionalAttendees,
 				AddMeet:        autoGenMeet && host.IsPrimary,
 			})
 			if err != nil {
@@ -1153,6 +1161,7 @@ func (h *Handler) dispatchBookingConfirmation(b *booking.Booking, in bookingConf
 
 // GetBooking handles authenticated GET /v1/bookings/{id}.
 func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
+	user, authenticated := userFromContext(r.Context())
 	id := r.PathValue("id")
 	b, err := h.bookingSvc.Get(r.Context(), id)
 	if err != nil {
@@ -1162,6 +1171,10 @@ func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
 		}
 		h.logger.ErrorContext(r.Context(), "get booking", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if authenticated && !user.IsAdmin && b.HostID != user.ID {
+		h.writeError(w, http.StatusNotFound, "booking not found")
 		return
 	}
 	h.writeJSON(w, http.StatusOK, toBookingJSON(b))
@@ -1260,10 +1273,11 @@ func (h *Handler) ListBookings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fetch organizer attendee for each booking.
+	// Fetch every attendee for each booking. Public/widget bookings still contain
+	// one organizer; managed direct bookings may contain multiple participants.
 	aRows, err := h.db.QueryContext(r.Context(), // #nosec G701 -- ph is a fixed string of "?," placeholders (strings.Repeat above); every value is bound via ids..., never concatenated into the SQL text
 		`SELECT booking_id, name, email FROM booking_attendees
-		 WHERE booking_id IN (`+ph+`) AND is_organizer = 1`, ids...) // #nosec G202 -- ph is a fixed string of "?," placeholders (strings.Repeat above); every value is bound via ids..., never concatenated into the SQL text
+		 WHERE booking_id IN (`+ph+`) ORDER BY is_organizer DESC, id`, ids...) // #nosec G202 -- ph is a fixed string of "?," placeholders (strings.Repeat above); every value is bound via ids..., never concatenated into the SQL text
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "list bookings: attendees", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")

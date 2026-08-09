@@ -45,16 +45,18 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	h.SetDemoMode(cfg.DemoMode)
 	h.SetBonnieManagedMode(cfg.BonnieManagedMode)
 	h.SetManagedIdentityConfig(handler.ManagedIdentityConfig{
-		Issuer:        cfg.BonnieManagedIssuer,
-		CompanyRef:    cfg.BonnieManagedCompany,
-		JWKSURL:       cfg.BonnieManagedJWKSURL,
-		JWKS:          cfg.BonnieManagedJWKS,
-		AllowedKids:   cfg.BonnieManagedAllowedKids,
-		OperatorKey:   cfg.BonnieManagedOperatorKey,
-		EntryPath:     cfg.BonnieManagedEntryPath,
-		LoginRedirect: cfg.BonnieManagedLoginRedirect,
-		SessionTTL:    cfg.BonnieManagedSessionTTL,
-		PublicBaseURL: cfg.PublicBaseURL,
+		Issuer:         cfg.BonnieManagedIssuer,
+		CompanyRef:     cfg.BonnieManagedCompany,
+		JWKSURL:        cfg.BonnieManagedJWKSURL,
+		JWKS:           cfg.BonnieManagedJWKS,
+		AllowedKids:    cfg.BonnieManagedAllowedKids,
+		OperatorKey:    cfg.BonnieManagedOperatorKey,
+		EntryPath:      cfg.BonnieManagedEntryPath,
+		LoginRedirect:  cfg.BonnieManagedLoginRedirect,
+		SessionTTL:     cfg.BonnieManagedSessionTTL,
+		PublicBaseURL:  cfg.PublicBaseURL,
+		SiteDomain:     cfg.BonnieManagedSiteDomain,
+		FrameAncestors: cfg.BonnieManagedFrameAncestors,
 	})
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
 
@@ -303,6 +305,8 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	if cfg.BonnieManagedMode {
 		managedExchangeRL := RateLimit(10, time.Minute)
 		mux.HandleFunc("POST /v1/auth/managed/exchange", managedExchangeRL(h.ManagedExchange))
+		mux.HandleFunc("POST /v1/auth/managed/exchange/calendar/embed", managedExchangeRL(h.ManagedCalendarEmbedExchange))
+		mux.HandleFunc("POST /v1/auth/managed/exchange/calendar/full", managedExchangeRL(h.ManagedCalendarFullExchange))
 
 		// Operator-key-only managed member lifecycle. These authenticate via
 		// X-Operator-Key, never a browser session or member API key.
@@ -468,6 +472,11 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.HandleFunc("PATCH /v1/bookings/{id}/reschedule", h.RequireAuth(h.RescheduleBooking))
 	mux.HandleFunc("POST /v1/bookings/{id}/reassign", h.RequireAuth(h.ReassignBooking))
 	mux.HandleFunc("GET /v1/bookings/{id}/answers", h.RequireAuth(h.GetBookingAnswers))
+	if cfg.BonnieManagedMode {
+		mux.HandleFunc("POST /v1/bookings/managed-upsert", h.RequireAuth(h.ManagedBookingUpsert))
+		mux.HandleFunc("POST /v1/bookings/{id}/managed-location", h.RequireAuth(h.ManagedBookingLocation))
+		mux.HandleFunc("POST /v1/bookings/{id}/managed-cancel", h.RequireAuth(h.ManagedBookingCancel))
+	}
 
 	// Public booking page
 	mux.HandleFunc("GET /embed.js", h.EmbedJS)
@@ -511,6 +520,7 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.HandleFunc("GET /v1/calendar/callback", h.CalendarCallback)
 	mux.HandleFunc("PUT /v1/calendar/managed/google", h.RequireAuth(h.InstallManagedGoogleCredential))
 	mux.HandleFunc("DELETE /v1/calendar/managed/google", h.RequireAuth(h.RevokeManagedGoogleCredential))
+	mux.HandleFunc("GET /v1/calendar/managed/google/readiness", h.RequireAuth(h.ManagedGoogleReadiness))
 	mux.HandleFunc("POST /v1/calendar/caldav/connect", h.RequireAuth(h.ConnectCalDAV))
 	mux.HandleFunc("GET /v1/calendar/status", h.RequireAuth(h.CalendarStatus))
 	mux.HandleFunc("POST /v1/calendar/connections/{id}/destination", h.RequireAuth(h.SetCalendarDestination))

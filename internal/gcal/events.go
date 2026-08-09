@@ -90,6 +90,9 @@ func (c *Client) CreateEvent(ctx context.Context, userID string, p calendar.Crea
 			DisplayName: p.OrganizerName,
 		})
 	}
+	for _, attendee := range p.Attendees {
+		attendees = append(attendees, calEventAttendee{Email: attendee.Email, DisplayName: attendee.Name})
+	}
 
 	reqBody := calEventReq{
 		Summary:     p.Summary,
@@ -178,6 +181,38 @@ func (c *Client) UpdateEvent(ctx context.Context, userID, eventID string, start,
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("gcal: update event status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// UpdateEventLocation patches only the event location and notifies guests.
+func (c *Client) UpdateEventLocation(ctx context.Context, userID, eventID, location string) error {
+	if eventID == "" {
+		return nil
+	}
+	hc, calID, err := c.DestinationClient(ctx, userID)
+	if err != nil || hc == nil {
+		return err
+	}
+	body, err := json.Marshal(struct {
+		Location string `json:"location"`
+	}{Location: location})
+	if err != nil {
+		return fmt.Errorf("gcal: update event location marshal: %w", err)
+	}
+	apiURL := c.apiBase + "/calendars/" + url.PathEscape(calID) + "/events/" + url.PathEscape(eventID) + "?sendUpdates=all"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, apiURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("gcal: update event location request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("gcal: update event location call: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("gcal: update event location status %d", resp.StatusCode)
 	}
 	return nil
 }

@@ -22,6 +22,7 @@
 	const NEW_ISSUE_URL = 'https://github.com/Bonnie-Builds/calnode/issues/new/choose';
 
 	const isLogin = $derived($page.route.id === '/login');
+	const isEmbeddedCalendar = $derived($page.route.id === '/calendar/personal/embed');
 	const isPublicRoute = $derived(
 		$page.route.id === '/login' ||
 		$page.route.id === '/claim' ||
@@ -128,6 +129,8 @@
 				(item.requiresFeature !== 'recordings' || recordingsConfigured)
 		)
 	);
+	const resolvedNavHref = (item: (typeof navItems)[number]) =>
+		item.label === 'Calendar' && $authStatus.managed ? `${base}/calendar/personal` : item.href;
 
 	onMount(async () => {
 		if (isPublicRoute) {
@@ -181,6 +184,10 @@
 	<div class="flex h-full items-center justify-center text-sm text-muted-foreground">
 		Loading…
 	</div>
+{:else if isEmbeddedCalendar}
+	<main class="h-full overflow-auto bg-background p-4">
+		{@render children()}
+	</main>
 {:else}
 	<div class="flex h-full flex-col">
 	{#if $authStatus.demo_mode}
@@ -218,11 +225,12 @@
 					{:else if !item.section && visibleNavItems[i - 1]?.section}
 						<div class="my-2 border-t border-sidebar-border"></div>
 					{/if}
+					{@const href = resolvedNavHref(item)}
 					{@const active = item.exact
-						? $page.url.pathname === item.href || $page.url.pathname === base
-						: $page.url.pathname.startsWith(item.href)}
+						? $page.url.pathname === href || $page.url.pathname === base
+						: $page.url.pathname.startsWith(href)}
 					<a
-						href={item.href}
+						href={href}
 						class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors
 							{active
 								? 'bg-sidebar-accent text-sidebar-accent-foreground'

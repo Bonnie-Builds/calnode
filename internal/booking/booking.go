@@ -23,6 +23,7 @@ type Booking struct {
 	Status             string
 	CancellationReason string
 	LocationValue      string
+	Timezone           string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	PaymentStatus      string // none | pending | paid | refunded
@@ -71,7 +72,11 @@ type CreateParams struct {
 	EndAt         time.Time
 	LocationValue string
 	Organizer     Attendee
-	Answers       []Answer
+	// Participants are additional non-organizer guests. The first/direct invitee
+	// remains Organizer for compatibility with Calnode's existing mail and manage
+	// flows; every additional participant is persisted on the same booking.
+	Participants []Attendee
+	Answers      []Answer
 	// MaxActivePerInvitee caps how many active (upcoming, non-cancelled) bookings
 	// the organizer's email may already hold for this event type. 0 = unlimited.
 	MaxActivePerInvitee int

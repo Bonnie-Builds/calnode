@@ -25,29 +25,33 @@ import (
 // ManagedIdentityConfig is the frozen Bonnie-managed identity contract.
 // See the controlling plan's "Frozen contracts (Phase 0, 2026-08-07)" section.
 type ManagedIdentityConfig struct {
-	Issuer        string
-	CompanyRef    string
-	JWKSURL       string
-	JWKS          string
-	AllowedKids   []string
-	OperatorKey   string
-	EntryPath     string
-	LoginRedirect string
-	SessionTTL    time.Duration
-	PublicBaseURL string
+	Issuer         string
+	CompanyRef     string
+	JWKSURL        string
+	JWKS           string
+	AllowedKids    []string
+	OperatorKey    string
+	EntryPath      string
+	LoginRedirect  string
+	SessionTTL     time.Duration
+	PublicBaseURL  string
+	SiteDomain     string
+	FrameAncestors []string
 }
 
 type managedIdentityConfig struct {
-	issuer        string
-	companyRef    string
-	jwksURL       string
-	jwksInline    string
-	allowedKids   []string
-	operatorKey   string
-	entryPath     string
-	loginRedirect string
-	sessionTTL    time.Duration
-	publicBaseURL string
+	issuer         string
+	companyRef     string
+	jwksURL        string
+	jwksInline     string
+	allowedKids    []string
+	operatorKey    string
+	entryPath      string
+	loginRedirect  string
+	sessionTTL     time.Duration
+	publicBaseURL  string
+	siteDomain     string
+	frameAncestors []string
 }
 
 // managedClaimValues is the validated content of a ManagedCalnodeSessionAssertionV1.
@@ -384,6 +388,23 @@ func (h *Handler) getManagedMemberBySub(ctx context.Context, sub string) (string
 // assertion, consumes its jti once, upserts the forced member, and creates a
 // native session bounded to the managed session TTL (<=1h).
 func (h *Handler) ManagedExchange(w http.ResponseWriter, r *http.Request) {
+	h.managedExchange(w, r, "")
+}
+
+// ManagedCalendarEmbedExchange consumes a managed assertion and redirects only
+// to the fixed personal-calendar embed route. The request has no redirect/path
+// field, so callers cannot turn the exchange into an open redirect.
+func (h *Handler) ManagedCalendarEmbedExchange(w http.ResponseWriter, r *http.Request) {
+	h.managedExchange(w, r, "/admin/calendar/personal/embed")
+}
+
+// ManagedCalendarFullExchange consumes a fresh managed assertion and redirects
+// only to the full personal-calendar route.
+func (h *Handler) ManagedCalendarFullExchange(w http.ResponseWriter, r *http.Request) {
+	h.managedExchange(w, r, "/admin/calendar/personal")
+}
+
+func (h *Handler) managedExchange(w http.ResponseWriter, r *http.Request, fixedEntryPath string) {
 	if !h.bonnieManagedMode {
 		h.writeCodedError(w, http.StatusNotFound, "not_found", "not found")
 		return
@@ -444,9 +465,12 @@ func (h *Handler) ManagedExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.managedMu.RLock()
-	entryPath := h.managedIdentity.entryPath
-	h.managedMu.RUnlock()
+	entryPath := fixedEntryPath
+	if entryPath == "" {
+		h.managedMu.RLock()
+		entryPath = h.managedIdentity.entryPath
+		h.managedMu.RUnlock()
+	}
 	if entryPath == "" || !isManagedEntryPathSafe(entryPath) {
 		entryPath = "/"
 	}

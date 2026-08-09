@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -149,6 +150,30 @@ func TestManagedExchangeHappyPath(t *testing.T) {
 	}
 	if companyRef != "company_demo" || managedSubject != "sub_tenant_user_123" {
 		t.Fatalf("member projection wrong: company=%q sub=%q", companyRef, managedSubject)
+	}
+}
+
+func TestManagedCalendarExchangeEntrypointsUseFixedPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		handler  func(*handler.Handler, http.ResponseWriter, *http.Request)
+		expected string
+	}{
+		{name: "embed", path: "/v1/auth/managed/exchange/calendar/embed", handler: func(h *handler.Handler, w http.ResponseWriter, r *http.Request) { h.ManagedCalendarEmbedExchange(w, r) }, expected: "/admin/calendar/personal/embed"},
+		{name: "full", path: "/v1/auth/managed/exchange/calendar/full", handler: func(h *handler.Handler, w http.ResponseWriter, r *http.Request) { h.ManagedCalendarFullExchange(w, r) }, expected: "/admin/calendar/personal"},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h, _ := managedSetup(t)
+			body, _ := json.Marshal(map[string]string{"assertion": signAssertion(t, validClaims(fmt.Sprintf("jti-calendar-%06d", index)), "test-key-1")})
+			req := httptest.NewRequest(http.MethodPost, test.path, bytes.NewReader(body))
+			rec := httptest.NewRecorder()
+			test.handler(h, rec, req)
+			if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != test.expected {
+				t.Fatalf("status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+			}
+		})
 	}
 }
 

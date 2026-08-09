@@ -90,6 +90,12 @@ type Config struct {
 	BonnieManagedLoginRedirect string
 	// BonnieManagedSessionTTL bounds managed browser sessions (default 1h).
 	BonnieManagedSessionTTL time.Duration
+	// BonnieManagedSiteDomain is the deployment-owned registrable site suffix
+	// shared by Bonnie and this Calnode instance (for example, example.com).
+	BonnieManagedSiteDomain string
+	// BonnieManagedFrameAncestors is the exact comma-separated Bonnie app origin
+	// allowlist for the managed personal-calendar iframe. Empty keeps embed dark.
+	BonnieManagedFrameAncestors []string
 }
 
 func Load() *Config {
@@ -162,6 +168,8 @@ func Load() *Config {
 	cfg.BonnieManagedEntryPath = getEnv("BONNIE_MANAGED_ENTRY_PATH", "/")
 	cfg.BonnieManagedLoginRedirect = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_LOGIN_REDIRECT"))
 	cfg.BonnieManagedSessionTTL = getDuration("BONNIE_MANAGED_SESSION_TTL", time.Hour)
+	cfg.BonnieManagedSiteDomain = strings.ToLower(strings.TrimSpace(os.Getenv("BONNIE_MANAGED_SITE_DOMAIN")))
+	cfg.BonnieManagedFrameAncestors = splitCSV(os.Getenv("BONNIE_MANAGED_FRAME_ANCESTORS"))
 	cfg.DemoResetInterval = getDuration("DEMO_RESET_INTERVAL", 30*time.Minute)
 
 	return cfg

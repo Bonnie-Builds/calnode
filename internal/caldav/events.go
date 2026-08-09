@@ -64,6 +64,33 @@ func (c *Client) UpdateEvent(ctx context.Context, userID, eventID string, start,
 	return nil
 }
 
+// UpdateEventLocation replaces only LOCATION while preserving the event.
+func (c *Client) UpdateEventLocation(ctx context.Context, userID, eventID, location string) error {
+	cn, ok, err := c.loadConn(ctx, userID, -1, 1)
+	if err != nil || !ok {
+		return err
+	}
+	body, etag, status, err := c.getICS(ctx, eventID, cn.username, cn.password)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusNotFound {
+		return nil
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("caldav: fetch event for location update returned status %d", status)
+	}
+	updated := rewriteEventLocation(body, location)
+	putStatus, _, err := c.putICS(ctx, eventID, cn.username, cn.password, updated, "", etag)
+	if err != nil {
+		return err
+	}
+	if putStatus != http.StatusCreated && putStatus != http.StatusNoContent && putStatus != http.StatusOK {
+		return fmt.Errorf("caldav: update event location returned status %d", putStatus)
+	}
+	return nil
+}
+
 // CancelEvent deletes the event resource from the destination calendar.
 func (c *Client) CancelEvent(ctx context.Context, userID, eventID string) error {
 	cn, ok, err := c.loadConn(ctx, userID, -1, 1)
@@ -201,6 +228,46 @@ func rewriteEventTimes(ics string, start, end time.Time) string {
 			out = append(out, ln)
 		default:
 			out = append(out, ln)
+		}
+	}
+	return strings.Join(out, "\r\n") + "\r\n"
+}
+
+func rewriteEventLocation(ics, location string) string {
+	lines := strings.Split(strings.ReplaceAll(ics, "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines)+1)
+	inserted := false
+	sawSeq := false
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		head := propName(strings.ToUpper(line))
+		switch head {
+		case "LOCATION":
+			if !inserted {
+				out = append(out, "LOCATION:"+escapeText(location))
+				inserted = true
+			}
+		case "DTSTAMP", "LAST-MODIFIED":
+			out = append(out, head+":"+icsUTC(time.Now()))
+		case "SEQUENCE":
+			sawSeq = true
+			out = append(out, fmt.Sprintf("SEQUENCE:%d", seqPlusOne(line)))
+		case "END":
+			if strings.EqualFold(strings.TrimSpace(propValue(line)), "VEVENT") {
+				if !inserted {
+					out = append(out, "LOCATION:"+escapeText(location))
+					inserted = true
+				}
+				if !sawSeq {
+					out = append(out, "SEQUENCE:1")
+					sawSeq = true
+				}
+			}
+			out = append(out, line)
+		default:
+			out = append(out, line)
 		}
 	}
 	return strings.Join(out, "\r\n") + "\r\n"

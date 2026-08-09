@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -216,16 +217,18 @@ func (h *Handler) SetManagedIdentityConfig(cfg ManagedIdentityConfig) {
 	h.managedMu.Lock()
 	defer h.managedMu.Unlock()
 	h.managedIdentity = managedIdentityConfig{
-		issuer:        cfg.Issuer,
-		companyRef:    cfg.CompanyRef,
-		jwksURL:       cfg.JWKSURL,
-		jwksInline:    cfg.JWKS,
-		allowedKids:   cfg.AllowedKids,
-		operatorKey:   cfg.OperatorKey,
-		entryPath:     cfg.EntryPath,
-		loginRedirect: cfg.LoginRedirect,
-		sessionTTL:    cfg.SessionTTL,
-		publicBaseURL: cfg.PublicBaseURL,
+		issuer:         cfg.Issuer,
+		companyRef:     cfg.CompanyRef,
+		jwksURL:        cfg.JWKSURL,
+		jwksInline:     cfg.JWKS,
+		allowedKids:    cfg.AllowedKids,
+		operatorKey:    cfg.OperatorKey,
+		entryPath:      cfg.EntryPath,
+		loginRedirect:  cfg.LoginRedirect,
+		sessionTTL:     cfg.SessionTTL,
+		publicBaseURL:  cfg.PublicBaseURL,
+		siteDomain:     strings.ToLower(strings.TrimPrefix(strings.TrimSpace(cfg.SiteDomain), ".")),
+		frameAncestors: normalizeManagedFrameAncestors(cfg.FrameAncestors, cfg.SiteDomain),
 	}
 	h.managedJWKS = parseJWKS(cfg.JWKS)
 }

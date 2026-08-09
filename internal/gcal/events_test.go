@@ -328,3 +328,26 @@ func TestUpdateEvent_emptyEventID_noOp(t *testing.T) {
 		t.Errorf("UpdateEvent(\"\") = %v; want nil", err)
 	}
 }
+
+func TestUpdateEventLocation_sendsLocationOnlyPatch(t *testing.T) {
+	var gotMethod string
+	var gotBody struct {
+		Location string `json:"location"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		json.NewDecoder(r.Body).Decode(&gotBody) //nolint:errcheck
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	c := newTestClient(t)
+	c.apiBase = srv.URL
+	saveDestinationConnection(t, c, "user-1", "primary")
+	location := "https://app.example.com/meetings/rooms/bonnie-room%3Ameeting-1"
+	if err := c.UpdateEventLocation(context.Background(), "user-1", "evt-1", location); err != nil {
+		t.Fatalf("UpdateEventLocation: %v", err)
+	}
+	if gotMethod != http.MethodPatch || gotBody.Location != location {
+		t.Fatalf("method=%q location=%q", gotMethod, gotBody.Location)
+	}
+}

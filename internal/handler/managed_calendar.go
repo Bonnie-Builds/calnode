@@ -128,6 +128,58 @@ func (h *Handler) RevokeManagedGoogleCredential(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ManagedGoogleReadiness handles GET /v1/calendar/managed/google/readiness.
+// It is API-key only: browser sessions can inspect their calendar but cannot
+// use that session as evidence that the exact Bonnie-owned grant is ready.
+func (h *Handler) ManagedGoogleReadiness(w http.ResponseWriter, r *http.Request) {
+	if !h.bonnieManagedMode {
+		h.writeCodedError(w, http.StatusNotFound, "not_found", "not found")
+		return
+	}
+	if extractAPIKey(r) == "" {
+		h.writeCodedError(w, http.StatusForbidden, "api_key_required", "API key required")
+		return
+	}
+	user, ok := userFromContext(r.Context())
+	if !ok {
+		h.writeCodedError(w, http.StatusUnauthorized, "authentication_required", "authentication required")
+		return
+	}
+	svc := h.getCal()
+	if svc == nil {
+		h.writeJSON(w, http.StatusOK, map[string]string{
+			"provider":  "google",
+			"readiness": "provider_unavailable",
+		})
+		return
+	}
+	client, ok := svc.Provider("google").(*gcal.Client)
+	if !ok || client == nil {
+		h.writeJSON(w, http.StatusOK, map[string]string{
+			"provider":  "google",
+			"readiness": "provider_unavailable",
+		})
+		return
+	}
+	result, err := client.ManagedCredentialStatus(r.Context(), user.ID)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "managed Google readiness failed", "error", err, "user_id", user.ID)
+		h.writeJSON(w, http.StatusOK, map[string]string{
+			"provider":  "google",
+			"readiness": "provider_unavailable",
+		})
+		return
+	}
+	response := map[string]string{
+		"provider":  "google",
+		"readiness": string(result.Readiness),
+	}
+	if result.AccountEmail != "" {
+		response["account_email"] = result.AccountEmail
+	}
+	h.writeJSON(w, http.StatusOK, response)
+}
+
 func (h *Handler) writeCodedError(w http.ResponseWriter, status int, code, message string) {
 	h.writeJSON(w, status, map[string]string{"error": message, "code": code})
 }

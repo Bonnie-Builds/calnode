@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 func newManagedTestClient(t *testing.T, tokenInfoAudience, tokenInfoScopes, primaryEmail string) *Client {
@@ -16,7 +18,9 @@ func newManagedTestClient(t *testing.T, tokenInfoAudience, tokenInfoScopes, prim
 		switch r.URL.Path {
 		case "/token":
 			if err := r.ParseForm(); err != nil || r.Form.Get("refresh_token") != "managed-refresh-token" {
-				http.Error(w, "invalid refresh token", http.StatusUnauthorized)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"refresh token rejected"}`))
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -170,6 +174,130 @@ func TestInstallManagedCredential_rejectsUnusableRefreshTokenWithoutPersistence(
 		t.Fatalf("error = %v; want ErrManagedCredentialInvalid", err)
 	}
 	assertNoManagedConnection(t, client, "user-1")
+}
+
+func TestManagedCredentialStatus_activelyValidatesReadyCredential(t *testing.T) {
+	client := newManagedTestClient(t, "client-id", CalendarScope+" openid", "host@example.com")
+	seedUser(t, client.db, "user-1")
+	if _, err := client.InstallManagedCredential(context.Background(), "user-1", managedCredential("host@example.com")); err != nil {
+		t.Fatalf("InstallManagedCredential: %v", err)
+	}
+
+	result, err := client.ManagedCredentialStatus(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("ManagedCredentialStatus: %v", err)
+	}
+	if result.Readiness != ManagedCredentialReady || result.AccountEmail != "host@example.com" {
+		t.Fatalf("result = %+v; want ready host account", result)
+	}
+}
+
+func TestManagedCredentialStatus_reportsMissingWithoutStoredConnection(t *testing.T) {
+	client := newManagedTestClient(t, "client-id", CalendarScope, "host@example.com")
+	seedUser(t, client.db, "user-1")
+
+	result, err := client.ManagedCredentialStatus(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("ManagedCredentialStatus: %v", err)
+	}
+	if result.Readiness != ManagedCredentialAuthorizationMissing {
+		t.Fatalf("readiness = %q; want authorization_missing", result.Readiness)
+	}
+}
+
+func TestManagedCredentialStatus_reportsRevokedRefreshGrant(t *testing.T) {
+	client := newManagedTestClient(t, "client-id", CalendarScope, "host@example.com")
+	seedUser(t, client.db, "user-1")
+	if err := client.saveToken(context.Background(), "user-1", "primary", "host@example.com", &oauth2.Token{
+		AccessToken:  "old-access-token",
+		RefreshToken: "revoked-refresh-token",
+		Expiry:       time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("saveToken: %v", err)
+	}
+
+	result, err := client.ManagedCredentialStatus(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("ManagedCredentialStatus: %v", err)
+	}
+	if result.Readiness != ManagedCredentialAuthorizationRevoked {
+		t.Fatalf("readiness = %q; want authorization_revoked", result.Readiness)
+	}
+}
+
+func TestManagedCredentialStatus_reportsMissingScope(t *testing.T) {
+	client := newManagedTestClient(t, "client-id", "openid email", "host@example.com")
+	seedUser(t, client.db, "user-1")
+	if err := client.saveToken(context.Background(), "user-1", "primary", "host@example.com", &oauth2.Token{
+		AccessToken:  "old-access-token",
+		RefreshToken: "managed-refresh-token",
+		Expiry:       time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("saveToken: %v", err)
+	}
+
+	result, err := client.ManagedCredentialStatus(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("ManagedCredentialStatus: %v", err)
+	}
+	if result.Readiness != ManagedCredentialMissingScope {
+		t.Fatalf("readiness = %q; want missing_scope", result.Readiness)
+	}
+}
+
+func TestManagedCredentialStatus_reportsWrongPrimaryAccount(t *testing.T) {
+	client := newManagedTestClient(t, "client-id", CalendarScope, "actual@example.com")
+	seedUser(t, client.db, "user-1")
+	if err := client.saveToken(context.Background(), "user-1", "primary", "expected@example.com", &oauth2.Token{
+		AccessToken:  "old-access-token",
+		RefreshToken: "managed-refresh-token",
+		Expiry:       time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("saveToken: %v", err)
+	}
+
+	result, err := client.ManagedCredentialStatus(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("ManagedCredentialStatus: %v", err)
+	}
+	if result.Readiness != ManagedCredentialWrongAccount {
+		t.Fatalf("readiness = %q; want wrong_account", result.Readiness)
+	}
+}
+
+func TestManagedCredentialStatus_doesNotMisclassifyProviderOutageAsRevocation(t *testing.T) {
+	database := newTestDB(t)
+	client, err := New(
+		database,
+		"client-id",
+		"client-secret",
+		"http://localhost/callback",
+		testKeyHex,
+		WithManagedValidationEndpoints(
+			"http://127.0.0.1:1/token",
+			"http://127.0.0.1:1/tokeninfo",
+			"http://127.0.0.1:1/calendar/v3",
+		),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	seedUser(t, database, "user-1")
+	if err := client.saveToken(context.Background(), "user-1", "primary", "host@example.com", &oauth2.Token{
+		AccessToken:  "old-access-token",
+		RefreshToken: "managed-refresh-token",
+		Expiry:       time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("saveToken: %v", err)
+	}
+
+	result, err := client.ManagedCredentialStatus(context.Background(), "user-1")
+	if err == nil {
+		t.Fatalf("ManagedCredentialStatus = %+v, nil; want provider error", result)
+	}
+	if result.Readiness == ManagedCredentialAuthorizationRevoked {
+		t.Fatalf("provider outage was misclassified as %q", result.Readiness)
+	}
 }
 
 func assertNoManagedConnection(t *testing.T, client *Client, userID string) {

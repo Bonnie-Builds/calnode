@@ -22,7 +22,16 @@ type CreateEventParams struct {
 	Start, End     time.Time
 	OrganizerName  string
 	OrganizerEmail string
+	Attendees      []EventAttendee
 	AddMeet        bool
+}
+
+// EventAttendee is an additional guest on the provider event. OrganizerName /
+// OrganizerEmail remain the primary invitee for Calnode's existing mail and
+// manage-link semantics.
+type EventAttendee struct {
+	Name  string
+	Email string
 }
 
 // CalendarInfo is one calendar the provider exposes for a connected account.
@@ -64,6 +73,7 @@ type Provider interface {
 	FreeBusy(ctx context.Context, userID string, from, to time.Time) ([]slots.Interval, error)
 	CreateEvent(ctx context.Context, userID string, p CreateEventParams) (eventID, joinURL string, err error)
 	UpdateEvent(ctx context.Context, userID, eventID string, start, end time.Time) error
+	UpdateEventLocation(ctx context.Context, userID, eventID, location string) error
 	CancelEvent(ctx context.Context, userID, eventID string) error
 }
 
@@ -318,6 +328,16 @@ func (s *Service) CreateEvent(ctx context.Context, userID string, p CreateEventP
 func (s *Service) UpdateEvent(ctx context.Context, userID, eventID string, start, end time.Time) error {
 	if pr := s.providerForDestination(ctx, userID); pr != nil {
 		return pr.UpdateEvent(ctx, userID, eventID, start, end)
+	}
+	return nil
+}
+
+// UpdateEventLocation changes only the external event location. It is used by
+// the managed Bonnie Room flow after the booking exists and therefore must not
+// move the event or mint a provider conference.
+func (s *Service) UpdateEventLocation(ctx context.Context, userID, eventID, location string) error {
+	if pr := s.providerForDestination(ctx, userID); pr != nil {
+		return pr.UpdateEventLocation(ctx, userID, eventID, location)
 	}
 	return nil
 }

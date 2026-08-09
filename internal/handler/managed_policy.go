@@ -2,6 +2,9 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -45,9 +48,50 @@ func (h *Handler) ManagedSPAGuard(next http.Handler) http.Handler {
 				h.writeCodedError(w, http.StatusServiceUnavailable, "managed_login_unavailable", "managed login unavailable")
 				return
 			}
+			if r.URL.Path == "/calendar/personal/embed" {
+				w.Header().Set("Content-Security-Policy", h.managedCalendarEmbedCSP())
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func normalizeManagedFrameAncestors(origins []string, siteDomain string) []string {
+	site := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(siteDomain), "."))
+	if site == "" {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(origins))
+	normalized := make([]string, 0, len(origins))
+	for _, raw := range origins {
+		parsed, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || strings.Contains(parsed.Host, "*") || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+			continue
+		}
+		hostname := strings.ToLower(parsed.Hostname())
+		if hostname != site && !strings.HasSuffix(hostname, "."+site) {
+			continue
+		}
+		origin := parsed.Scheme + "://" + parsed.Host
+		if _, exists := seen[origin]; exists {
+			continue
+		}
+		seen[origin] = struct{}{}
+		normalized = append(normalized, origin)
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
+func (h *Handler) managedCalendarEmbedCSP() string {
+	h.managedMu.RLock()
+	ancestors := append([]string(nil), h.managedIdentity.frameAncestors...)
+	h.managedMu.RUnlock()
+	frameAncestors := "'none'"
+	if len(ancestors) > 0 {
+		frameAncestors = strings.Join(ancestors, " ")
+	}
+	return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors " + frameAncestors + "; base-uri 'none'; form-action 'self'"
 }
 
 // ManagedRoot handles GET / in managed mode: an unauthenticated browser is

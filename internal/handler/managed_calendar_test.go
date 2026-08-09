@@ -162,6 +162,72 @@ func TestRevokeManagedGoogleCredential_removesAuthenticatedMembersConnection(t *
 	}
 }
 
+func TestManagedGoogleReadiness_reportsMissingForExactAPIKeyMember(t *testing.T) {
+	h, _, apiKey, _ := newManagedCalendarHandler(t)
+	req := authReq(http.MethodGet, "/v1/calendar/managed/google/readiness", "", apiKey)
+	rec := httptest.NewRecorder()
+	h.RequireAuth(h.ManagedGoogleReadiness)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 — %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Provider  string `json:"provider"`
+		Readiness string `json:"readiness"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Provider != "google" || response.Readiness != "authorization_missing" {
+		t.Fatalf("response = %+v; want exact-member Google authorization_missing", response)
+	}
+}
+
+func TestManagedGoogleReadiness_activelyValidatesInstalledExactMember(t *testing.T) {
+	h, _, apiKey, _ := newManagedCalendarHandler(t)
+	installReq := authReq(http.MethodPut, "/v1/calendar/managed/google", managedCredentialJSON, apiKey)
+	installRec := httptest.NewRecorder()
+	h.RequireAuth(h.InstallManagedGoogleCredential)(installRec, installReq)
+	if installRec.Code != http.StatusOK {
+		t.Fatalf("install status = %d — %s", installRec.Code, installRec.Body.String())
+	}
+
+	req := authReq(http.MethodGet, "/v1/calendar/managed/google/readiness", "", apiKey)
+	rec := httptest.NewRecorder()
+	h.RequireAuth(h.ManagedGoogleReadiness)(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 — %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "managed-access-token") || strings.Contains(rec.Body.String(), "managed-refresh-token") {
+		t.Fatal("readiness response exposed OAuth token material")
+	}
+	var response struct {
+		Provider     string `json:"provider"`
+		Readiness    string `json:"readiness"`
+		AccountEmail string `json:"account_email"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Provider != "google" || response.Readiness != "ready" || response.AccountEmail != "cal@example.com" {
+		t.Fatalf("response = %+v; want exact-member ready", response)
+	}
+}
+
+func TestManagedGoogleReadiness_rejectsBrowserSession(t *testing.T) {
+	h, database, _, userID := newManagedCalendarHandler(t)
+	if _, err := database.Exec(`INSERT INTO sessions (id,user_id,expires_at) VALUES ('readiness-browser-session',?,'2099-01-01T00:00:00Z')`, userID); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/calendar/managed/google/readiness", nil)
+	req.AddCookie(&http.Cookie{Name: "calnode_session", Value: "readiness-browser-session"})
+	rec := httptest.NewRecorder()
+	h.RequireAuth(h.ManagedGoogleReadiness)(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d; want 403 — %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestConnectCalendar_bonnieManagedModeBlocksSecondConsent(t *testing.T) {
 	h, _, apiKey, _ := newManagedCalendarHandler(t)
 	req := authReq(http.MethodGet, "/v1/calendar/connect", "", apiKey)
