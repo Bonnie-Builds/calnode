@@ -32,14 +32,40 @@ func (h *Handler) createSessionTTL(ctx context.Context, w http.ResponseWriter, u
 		sessID, userID, expiresAt, managedFlag); err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- HttpOnly/SameSite/Secure are all set; Secure is h.secureCookie (true whenever BASE_URL is https, false only for local http dev) rather than a literal, which gosec's static check can't verify
-		Name:     sessionCookieName,
+	secure := h.sessionCookieSecure(managed)
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- HttpOnly/SameSite are fixed; Secure stays mandatory except for an exact HTTP loopback managed origin used by local manual QA
+		Name:     h.sessionCookieName(managed),
 		Value:    sessID,
 		Path:     "/",
 		MaxAge:   int(ttl.Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   h.secureCookie || managed,
+		Secure:   secure,
 	})
 	return nil
+}
+
+func (h *Handler) sessionCookieName(managed bool) string {
+	if managed && !h.sessionCookieSecure(true) {
+		return loopbackManagedSessionCookieName
+	}
+	return sessionCookieName
+}
+
+func (h *Handler) browserSessionCookieName() string {
+	return h.sessionCookieName(h.bonnieManagedMode)
+}
+
+func (h *Handler) browserSessionCookie(r *http.Request) (*http.Cookie, error) {
+	return r.Cookie(h.browserSessionCookieName())
+}
+
+func (h *Handler) sessionCookieSecure(managed bool) bool {
+	if !managed {
+		return h.secureCookie
+	}
+	h.managedMu.RLock()
+	publicBaseURL := h.managedIdentity.publicBaseURL
+	h.managedMu.RUnlock()
+	return h.secureCookie || !isExactHTTPLoopbackOrigin(publicBaseURL)
 }

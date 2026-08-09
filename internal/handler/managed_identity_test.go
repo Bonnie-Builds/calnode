@@ -14,6 +14,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,6 +155,34 @@ func TestManagedExchangeHappyPath(t *testing.T) {
 	}
 }
 
+func TestManagedExchangeHTTPLoopbackCookieIsBrowserUsable(t *testing.T) {
+	h, _ := managedSetup(t)
+	h.SetManagedIdentityConfig(handler.ManagedIdentityConfig{
+		Issuer:        "https://auth.bonnie.test",
+		CompanyRef:    "company_demo",
+		JWKS:          managedTestPublicJWKS(t),
+		AllowedKids:   []string{"test-key-1"},
+		OperatorKey:   "operator-secret-0123456789",
+		EntryPath:     "/",
+		SessionTTL:    time.Hour,
+		PublicBaseURL: "http://localhost:4222",
+	})
+	claims := validClaims("jti-loopback-00001")
+	claims["aud"] = "http://localhost:4222"
+	body, _ := json.Marshal(map[string]string{"assertion": signAssertion(t, claims, "test-key-1")})
+	req := httptest.NewRequest(http.MethodPost, "/v1/auth/managed/exchange", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ManagedExchange(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "calnode_session_local" || cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatalf("loopback managed cookie must be non-Secure/HttpOnly/SameSite=Lax: %#v", cookies)
+	}
+}
+
 func TestManagedCalendarExchangeEntrypointsUseFixedPaths(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -166,12 +196,39 @@ func TestManagedCalendarExchangeEntrypointsUseFixedPaths(t *testing.T) {
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			h, _ := managedSetup(t)
-			body, _ := json.Marshal(map[string]string{"assertion": signAssertion(t, validClaims(fmt.Sprintf("jti-calendar-%06d", index)), "test-key-1")})
-			req := httptest.NewRequest(http.MethodPost, test.path, bytes.NewReader(body))
+			body := url.Values{
+				"assertion": {signAssertion(t, validClaims(fmt.Sprintf("jti-calendar-%06d", index)), "test-key-1")},
+			}.Encode()
+			req := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			rec := httptest.NewRecorder()
 			test.handler(h, rec, req)
 			if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != test.expected {
 				t.Fatalf("status=%d location=%q body=%s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestManagedExchangeRejectsNonClosedFormBodies(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		contentType string
+	}{
+		{name: "extra field", body: "assertion=x&redirect=%2Fevil", contentType: "application/x-www-form-urlencoded"},
+		{name: "duplicate assertion", body: "assertion=x&assertion=y", contentType: "application/x-www-form-urlencoded"},
+		{name: "unsupported content type", body: "assertion=x", contentType: "text/plain"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h, _ := managedSetup(t)
+			req := httptest.NewRequest(http.MethodPost, "/v1/auth/managed/exchange/calendar/embed", strings.NewReader(test.body))
+			req.Header.Set("Content-Type", test.contentType)
+			rec := httptest.NewRecorder()
+			h.ManagedCalendarEmbedExchange(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s; want 400", rec.Code, rec.Body.String())
 			}
 		})
 	}
@@ -501,6 +558,14 @@ func TestManagedSurfaceDenialMiddleware(t *testing.T) {
 	h.ManagedDenyMiddleware(next).ServeHTTP(apiRec, apiReq)
 	if apiRec.Code != http.StatusNotFound {
 		t.Fatalf("managed API-key caller should be denied create API key, got %d", apiRec.Code)
+	}
+
+	webhookReq := httptest.NewRequest(http.MethodPost, "/v1/webhooks", nil)
+	webhookReq.Header.Set("X-API-Key", rawKey)
+	webhookRec := httptest.NewRecorder()
+	h.ManagedDenyMiddleware(next).ServeHTTP(webhookRec, webhookReq)
+	if webhookRec.Code != http.StatusNotFound {
+		t.Fatalf("managed API-key caller should be denied webhook administration, got %d", webhookRec.Code)
 	}
 
 	profileReq := httptest.NewRequest(http.MethodGet, "/v1/users/me", nil)

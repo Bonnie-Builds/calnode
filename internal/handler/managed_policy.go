@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -18,7 +19,7 @@ func (h *Handler) managedLoginRedirect() string {
 // hasValidSession reports whether the request carries an unexpired session
 // cookie for an active (non-archived) user.
 func (h *Handler) hasValidSession(r *http.Request) bool {
-	cookie, err := r.Cookie(sessionCookieName)
+	cookie, err := h.browserSessionCookie(r)
 	if err != nil || cookie.Value == "" {
 		return false
 	}
@@ -65,10 +66,15 @@ func normalizeManagedFrameAncestors(origins []string, siteDomain string) []strin
 	normalized := make([]string, 0, len(origins))
 	for _, raw := range origins {
 		parsed, err := url.Parse(strings.TrimSpace(raw))
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || strings.Contains(parsed.Host, "*") || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		if err != nil {
 			continue
 		}
 		hostname := strings.ToLower(parsed.Hostname())
+		loopback := isLoopbackHostname(hostname)
+		qualifiedScheme := parsed.Scheme == "https" || (parsed.Scheme == "http" && loopback)
+		if !qualifiedScheme || parsed.Host == "" || strings.Contains(parsed.Host, "*") || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+			continue
+		}
 		if hostname != site && !strings.HasSuffix(hostname, "."+site) {
 			continue
 		}
@@ -83,15 +89,34 @@ func normalizeManagedFrameAncestors(origins []string, siteDomain string) []strin
 	return normalized
 }
 
+func isLoopbackHostname(hostname string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(hostname))
+	parsedIP := net.ParseIP(normalized)
+	return normalized == "localhost" || (parsedIP != nil && parsedIP.IsLoopback())
+}
+
+func isExactHTTPLoopbackOrigin(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	return isLoopbackHostname(parsed.Hostname())
+}
+
 func (h *Handler) managedCalendarEmbedCSP() string {
 	h.managedMu.RLock()
 	ancestors := append([]string(nil), h.managedIdentity.frameAncestors...)
+	scriptSources := append([]string(nil), h.managedIdentity.scriptSources...)
 	h.managedMu.RUnlock()
 	frameAncestors := "'none'"
 	if len(ancestors) > 0 {
 		frameAncestors = strings.Join(ancestors, " ")
 	}
-	return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors " + frameAncestors + "; base-uri 'none'; form-action 'self'"
+	scriptSource := "'self'"
+	if len(scriptSources) > 0 {
+		scriptSource += " " + strings.Join(scriptSources, " ")
+	}
+	return "default-src 'self'; script-src " + scriptSource + "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors " + frameAncestors + "; base-uri 'none'; form-action 'self'"
 }
 
 // ManagedRoot handles GET / in managed mode: an unauthenticated browser is
@@ -220,7 +245,7 @@ func (h *Handler) ManagedDenyMiddleware(next http.Handler) http.Handler {
 // managedCaller resolves the session-cookie caller as an AuthUser, mirroring
 // the session path in RequireAuth. Returns ok=false when no valid session.
 func (h *Handler) managedCaller(r *http.Request) (AuthUser, bool) {
-	cookie, err := r.Cookie(sessionCookieName)
+	cookie, err := h.browserSessionCookie(r)
 	if err == nil && cookie.Value != "" {
 		if user, ok := h.managedSessionCaller(r, cookie.Value); ok {
 			return user, true

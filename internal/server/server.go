@@ -57,6 +57,7 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 		PublicBaseURL:  cfg.PublicBaseURL,
 		SiteDomain:     cfg.BonnieManagedSiteDomain,
 		FrameAncestors: cfg.BonnieManagedFrameAncestors,
+		ScriptSources:  frontend.InlineScriptCSPHashes(),
 	})
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
 
@@ -313,6 +314,7 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 		mux.HandleFunc("POST /v1/managed/members", h.RequireManagedOperator(h.ManagedEnsureMember))
 		mux.HandleFunc("POST /v1/managed/members/{sub}/archive", h.RequireManagedOperator(h.ManagedArchiveMember))
 		mux.HandleFunc("POST /v1/managed/members/{sub}/reactivate", h.RequireManagedOperator(h.ManagedReactivateMember))
+		mux.HandleFunc("POST /v1/managed/members/{sub}/webhooks", h.RequireManagedOperator(h.ManagedCreateMemberWebhook))
 	}
 
 	// MCP server (Model Context Protocol) — Streamable HTTP transport for remote

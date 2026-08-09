@@ -85,8 +85,8 @@ func (rw *responseWriter) Flush() {
 // Host (the common default).
 func SameOriginCheck(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isStateChanging(r.Method) {
-			if _, err := r.Cookie("calnode_session"); err == nil {
+		if isStateChanging(r.Method) && !isManagedAssertionExchange(r) {
+			if hasBrowserSessionCookie(r) {
 				if src := requestOriginHost(r); src != "" && !strings.EqualFold(src, r.Host) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusForbidden)
@@ -97,6 +97,29 @@ func SameOriginCheck(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func hasBrowserSessionCookie(r *http.Request) bool {
+	for _, name := range []string{"calnode_session", "calnode_session_local"} {
+		if _, err := r.Cookie(name); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func isManagedAssertionExchange(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	switch r.URL.Path {
+	case "/v1/auth/managed/exchange",
+		"/v1/auth/managed/exchange/calendar/embed",
+		"/v1/auth/managed/exchange/calendar/full":
+		return true
+	default:
+		return false
+	}
 }
 
 func isStateChanging(method string) bool {

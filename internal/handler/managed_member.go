@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 )
+
+type managedWebhookProvisioningKey struct{}
 
 // RequireManagedOperator authenticates the deployment-owned operator key. The
 // managed member endpoints are reachable ONLY through this key, never a browser
@@ -100,4 +103,39 @@ func (h *Handler) ManagedReactivateMember(w http.ResponseWriter, r *http.Request
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]any{"sub": sub, "reactivated": true})
+}
+
+// ManagedCreateMemberWebhook handles POST
+// /v1/managed/members/{sub}/webhooks. The deployment operator may create a
+// webhook owned by exactly one active managed member without exposing webhook
+// administration to that member's browser session or API key.
+func (h *Handler) ManagedCreateMemberWebhook(w http.ResponseWriter, r *http.Request) {
+	sub := strings.TrimSpace(r.PathValue("sub"))
+	if sub == "" || len(sub) > 512 {
+		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid managed subject")
+		return
+	}
+
+	var userID string
+	err := h.db.QueryRowContext(r.Context(), `
+		SELECT id FROM users
+		WHERE managed_subject = ?
+		  AND is_managed_member = 1
+		  AND archived_at IS NULL`, sub).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		h.writeCodedError(w, http.StatusNotFound, "member_not_found", "managed member not found")
+		return
+	}
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "managed member webhook lookup failed", "error", err)
+		h.writeCodedError(w, http.StatusServiceUnavailable, "member_unavailable", "member unavailable")
+		return
+	}
+
+	ctx := context.WithValue(r.Context(), ctxKeyUser, AuthUser{
+		ID:              userID,
+		IsManagedMember: true,
+	})
+	ctx = context.WithValue(ctx, managedWebhookProvisioningKey{}, true)
+	h.CreateWebhook(w, r.WithContext(ctx))
 }

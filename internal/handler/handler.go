@@ -229,6 +229,7 @@ func (h *Handler) SetManagedIdentityConfig(cfg ManagedIdentityConfig) {
 		publicBaseURL:  cfg.PublicBaseURL,
 		siteDomain:     strings.ToLower(strings.TrimPrefix(strings.TrimSpace(cfg.SiteDomain), ".")),
 		frameAncestors: normalizeManagedFrameAncestors(cfg.FrameAncestors, cfg.SiteDomain),
+		scriptSources:  append([]string(nil), cfg.ScriptSources...),
 	}
 	h.managedJWKS = parseJWKS(cfg.JWKS)
 }

@@ -94,7 +94,7 @@ func (h *Handler) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// --- Session cookie path (admin browser UI) ---
-		if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
+		if cookie, err := h.browserSessionCookie(r); err == nil && cookie.Value != "" {
 			now := time.Now().UTC().Format(time.RFC3339)
 			var user AuthUser
 			var nc, nca, nr, nrm, nhb, nhc, nhr int

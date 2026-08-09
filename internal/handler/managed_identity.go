@@ -37,6 +37,7 @@ type ManagedIdentityConfig struct {
 	PublicBaseURL  string
 	SiteDomain     string
 	FrameAncestors []string
+	ScriptSources  []string
 }
 
 type managedIdentityConfig struct {
@@ -52,6 +53,7 @@ type managedIdentityConfig struct {
 	publicBaseURL  string
 	siteDomain     string
 	frameAncestors []string
+	scriptSources  []string
 }
 
 // managedClaimValues is the validated content of a ManagedCalnodeSessionAssertionV1.
@@ -410,26 +412,18 @@ func (h *Handler) managedExchange(w http.ResponseWriter, r *http.Request, fixedE
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, managedAssertionMaxBody)
-	var req struct {
-		Assertion string `json:"assertion"`
-	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
+	assertion, err := decodeManagedAssertionRequest(r)
+	if err != nil {
 		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid exchange request")
 		return
 	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid exchange request")
-		return
-	}
-	if req.Assertion == "" {
+	if assertion == "" {
 		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "assertion required")
 		return
 	}
 
 	ctx := r.Context()
-	claims, err := h.verifyManagedAssertion(ctx, req.Assertion)
+	claims, err := h.verifyManagedAssertion(ctx, assertion)
 	if err != nil {
 		h.logger.WarnContext(ctx, "managed exchange rejected", "reason", err.Error())
 		h.writeCodedError(w, http.StatusUnauthorized, "managed_assertion_rejected", "assertion rejected")
@@ -475,6 +469,36 @@ func (h *Handler) managedExchange(w http.ResponseWriter, r *http.Request, fixedE
 		entryPath = "/"
 	}
 	http.Redirect(w, r, entryPath, http.StatusSeeOther)
+}
+
+func decodeManagedAssertionRequest(r *http.Request) (string, error) {
+	contentType := strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0])
+	if contentType == "application/x-www-form-urlencoded" {
+		if err := r.ParseForm(); err != nil {
+			return "", err
+		}
+		values, found := r.PostForm["assertion"]
+		if !found || len(values) != 1 || len(r.PostForm) != 1 {
+			return "", errors.New("invalid form exchange request")
+		}
+		return values[0], nil
+	}
+	if contentType != "" && contentType != "application/json" {
+		return "", errors.New("unsupported exchange content type")
+	}
+
+	var req struct {
+		Assertion string `json:"assertion"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		return "", err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return "", errors.New("invalid trailing exchange content")
+	}
+	return req.Assertion, nil
 }
 
 // createManagedSession creates a session bounded to the managed session TTL

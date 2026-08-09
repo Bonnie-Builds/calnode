@@ -195,6 +195,59 @@ func (s *Service) Create(ctx context.Context, userID, url string, events []strin
 	return wh, plainSecret, nil
 }
 
+// EnsureManaged creates or updates the single Bonnie-managed webhook owned by
+// userID. Its deterministic ID makes operator retries safe after a lost
+// response: the existing encrypted signing secret is returned instead of
+// creating a second active subscription.
+func (s *Service) EnsureManaged(ctx context.Context, userID, url string, events []string) (*Webhook, string, error) {
+	rawSecret := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, rawSecret); err != nil {
+		return nil, "", fmt.Errorf("webhook: generate managed secret: %w", err)
+	}
+	encSecret, err := s.encrypt(rawSecret)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: encrypt managed secret: %w", err)
+	}
+	eventsJSON, err := json.Marshal(events)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: marshal managed events: %w", err)
+	}
+
+	digest := sha256.Sum256([]byte("bonnie-managed-webhook\x00" + userID))
+	id := "bmw_" + hex.EncodeToString(digest[:16])
+	var storedSecret, createdAt string
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO webhooks (id, user_id, url, events, secret_enc)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			url = excluded.url,
+			events = excluded.events,
+			is_active = 1
+		WHERE webhooks.user_id = excluded.user_id
+		RETURNING secret_enc, created_at`,
+		id, userID, url, string(eventsJSON), encSecret).
+		Scan(&storedSecret, &createdAt)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: ensure managed: %w", err)
+	}
+	secret, err := s.decrypt(storedSecret)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: decrypt managed secret: %w", err)
+	}
+	created, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: parse managed created time: %w", err)
+	}
+	return &Webhook{
+		ID:        id,
+		UserID:    userID,
+		URL:       url,
+		Events:    events,
+		IsActive:  true,
+		CreatedAt: created,
+	}, hex.EncodeToString(secret), nil
+}
+
 // Update applies partial changes to a webhook owned by userID. Nil pointers are
 // left unchanged. Returns ErrNotFound if no such webhook exists for the user.
 func (s *Service) Update(ctx context.Context, userID, id string, events, fields *[]string) error {

@@ -400,7 +400,7 @@ func (h *Handler) redirectAuthError(w http.ResponseWriter, r *http.Request, ar a
 // sessionUser resolves the current admin session cookie to a user (id, email). It
 // mirrors RequireAuth's session branch but is usable outside that middleware.
 func (h *Handler) sessionUser(r *http.Request) (userID, email string, ok bool) {
-	c, err := r.Cookie(sessionCookieName)
+	c, err := h.browserSessionCookie(r)
 	if err != nil || c.Value == "" {
 		return "", "", false
 	}

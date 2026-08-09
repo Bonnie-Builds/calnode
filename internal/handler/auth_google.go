@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	sessionCookieName = "calnode_session"
-	stateCookieName   = "calnode_oauth_state"
-	sessionDuration   = 30 * 24 * time.Hour
-	stateDuration     = 5 * time.Minute
+	sessionCookieName                = "calnode_session"
+	loopbackManagedSessionCookieName = "calnode_session_local"
+	stateCookieName                  = "calnode_oauth_state"
+	sessionDuration                  = 30 * 24 * time.Hour
+	stateDuration                    = 5 * time.Minute
 )
 
 // SetGoogleAuth configures the handler for Google OAuth sign-in.
@@ -96,7 +97,7 @@ func (h *Handler) CallbackGoogle(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	// Only delete the session if the cookie value corresponds to an actual row,
 	// so a forged or empty cookie cannot be used to trigger arbitrary deletes.
-	if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
+	if cookie, err := h.browserSessionCookie(r); err == nil && cookie.Value != "" {
 		// Best-effort: logout must proceed (cookie is cleared below) even if this fails;
 		// worst case is a harmless stale row that the session's own expiry cleans up.
 		//nolint:errcheck
@@ -105,13 +106,13 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 			`DELETE FROM sessions WHERE id = ?`, cookie.Value)
 	}
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- HttpOnly/SameSite/Secure are all set; Secure is h.secureCookie (dynamic on BASE_URL scheme), which gosec's static check can't verify
-		Name:     sessionCookieName,
+		Name:     h.browserSessionCookieName(),
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   h.secureCookie,
+		Secure:   h.sessionCookieSecure(h.bonnieManagedMode),
 	})
 	http.Redirect(w, r, "/admin/login", http.StatusFound)
 }
