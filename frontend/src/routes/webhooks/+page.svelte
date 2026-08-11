@@ -187,7 +187,7 @@
 				id="wh-url"
 				type="url"
 				bind:value={form.url}
-				placeholder="https://your-server.com/hooks/calnode"
+				placeholder="https://your-server.com/hooks/bonnie"
 			/>
 		</div>
 

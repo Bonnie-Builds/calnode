@@ -58,7 +58,7 @@
 	<header class="mb-4 flex items-center justify-between gap-4">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">Calendar</h1>
-			<p class="text-sm text-muted-foreground">Your Calnode bookings and meeting schedule.</p>
+			<p class="text-sm text-muted-foreground">Your bookings and meeting schedule.</p>
 		</div>
 		<div class="flex items-center gap-2">
 			<button class="rounded-md border px-3 py-1.5 text-sm hover:bg-muted" onclick={() => moveMonth(-1)} aria-label="Previous month">←</button>

@@ -26,7 +26,7 @@ func TestResendSMTPDelivery(t *testing.T) {
 	if err := sender.Send(ctx, Message{
 		To:             []string{to},
 		Subject:        "[E2E] Bonnie scheduler email",
-		Text:           "Bonnie's Calnode scheduler successfully delivered this Resend SMTP acceptance test.",
+		Text:           "Bonnie scheduling successfully delivered this Resend SMTP acceptance test.",
 		IdempotencyKey: "calnode/e2e/" + time.Now().UTC().Format("20060102T1504"),
 	}); err != nil {
 		t.Fatalf("Resend SMTP delivery: %v", err)

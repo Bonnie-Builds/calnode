@@ -18,8 +18,7 @@
 	let reportOpen = $state(false);
 	let recordingsConfigured = $state(false);
 
-	const ISSUES_URL = 'https://github.com/Bonnie-Builds/calnode/issues';
-	const NEW_ISSUE_URL = 'https://github.com/Bonnie-Builds/calnode/issues/new/choose';
+	const SUPPORT_URL = 'https://bonniebuilds.com';
 
 	const isLogin = $derived($page.route.id === '/login');
 	const isEmbeddedCalendar = $derived($page.route.id === '/calendar/personal/embed');
@@ -279,31 +278,20 @@
 	<Dialog.Root bind:open={reportOpen}>
 		<Dialog.Content class="max-w-md">
 			<Dialog.Header>
-				<Dialog.Title>Report an issue</Dialog.Title>
+				<Dialog.Title>Bonnie support</Dialog.Title>
 				<Dialog.Description>
-					Please <strong>search the existing issues first</strong> — it may already be reported or being
-					worked on. The tracker is for <strong>reproducible bugs</strong> in Bonnie; for setup help or
-					“how do I…” questions, please use Discussions instead.
+					Visit Bonnie support for help with scheduling or to report a problem.
 				</Dialog.Description>
 			</Dialog.Header>
-			<Dialog.Footer class="gap-2 sm:justify-between">
+			<Dialog.Footer>
 				<a
-					href={ISSUES_URL}
-					target="_blank"
-					rel="noopener noreferrer"
-					onclick={() => (reportOpen = false)}
-					class={buttonVariants({ variant: 'outline' })}
-				>
-					Search existing issues
-				</a>
-				<a
-					href={NEW_ISSUE_URL}
+					href={SUPPORT_URL}
 					target="_blank"
 					rel="noopener noreferrer"
 					onclick={() => (reportOpen = false)}
 					class={buttonVariants()}
 				>
-					Report a bug
+					Open Bonnie support
 				</a>
 			</Dialog.Footer>
 		</Dialog.Content>

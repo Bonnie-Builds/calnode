@@ -1,4 +1,4 @@
-/* Calnode built-in video room — vanilla JS over the LiveKit browser SDK (global LivekitClient).
+/* Bonnie built-in video room — vanilla JS over the LiveKit browser SDK (global LivekitClient).
  *
  * Flow: read the opaque room token (?t) from the URL → prejoin (name + camera/mic preview +
  * device pick) → POST /v1/livekit/token to exchange it for a real LiveKit access token →

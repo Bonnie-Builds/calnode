@@ -1,4 +1,4 @@
-/* Calnode embeddable booking widget.
+/* Bonnie embeddable booking widget.
  *
  * A dependency-free Web Component that renders the booking flow into a Shadow DOM —
  * real HTML in the host page (no iframe), styles encapsulated. It reuses the SAME
@@ -11,12 +11,12 @@
  *
  * Usage:
  *   <script src="https://booking.example.com/embed.js" async></script>
- *   <calnode-booking slug="intro-call"></calnode-booking>        <!-- inline -->
- *   <button data-calnode-popup="intro-call">Book a call</button>  <!-- popup  -->
+ *   <bonnie-booking slug="intro-call"></bonnie-booking>        <!-- inline -->
+ *   <button data-bonnie-popup="intro-call">Book a call</button>  <!-- popup  -->
  */
 (function () {
   'use strict';
-  if (window.customElements && customElements.get('calnode-booking')) return;
+  if (window.customElements && customElements.get('bonnie-booking')) return;
 
   var SELF = document.currentScript;
   var BASE = SELF ? new URL(SELF.src).origin : window.location.origin;
@@ -130,7 +130,12 @@
     });
   }
 
-  class CalnodeBooking extends HTMLElement {
+  function dispatchBooked(target, booking) {
+    target.dispatchEvent(new CustomEvent('bonnie:booked', { bubbles: true, composed: true, detail: booking }));
+    target.dispatchEvent(new CustomEvent('calnode:booked', { bubbles: true, composed: true, detail: booking }));
+  }
+
+  class BonnieBooking extends HTMLElement {
     connectedCallback() {
       if (this._mounted) return;
       this._mounted = true;
@@ -337,7 +342,7 @@
           this.asstMessages.push({ role: 'assistant', content: botEl.textContent });
           if (booking) botEl.className = 'asst-msg ok';
         }
-        if (booking) this.dispatchEvent(new CustomEvent('calnode:booked', { bubbles: true, composed: true, detail: booking }));
+        if (booking) dispatchBooked(this, booking);
       } catch (e) {
         if (typing.parentNode) typing.remove();
         this.asstAdd('Sorry — something went wrong. Please use the calendar.', 'note');
@@ -459,7 +464,7 @@
           // there (top window, so it isn't trapped in the host page's frame).
           if (res.data && res.data.checkout_url) { (window.top || window).location.href = res.data.checkout_url; return; }
           self.state.view = 'confirm'; self.render();
-          self.dispatchEvent(new CustomEvent('calnode:booked', { bubbles: true, composed: true, detail: res.data }));
+          dispatchBooked(self, res.data);
         }).catch(function (err) {
           errBox.textContent = err.message || 'Could not complete booking.';
           cta.disabled = false; cta.textContent = 'Confirm booking';
@@ -518,7 +523,10 @@
     }
   }
 
-  customElements.define('calnode-booking', CalnodeBooking);
+  customElements.define('bonnie-booking', BonnieBooking);
+  if (!customElements.get('calnode-booking')) {
+    customElements.define('calnode-booking', class LegacyCalnodeBooking extends BonnieBooking {});
+  }
 
   // ── popup mode (isolated in its own Shadow DOM so host CSS can't break it) ──
   var POPUP_STYLE = '' +
@@ -535,7 +543,7 @@
     hostEl.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;');
     var sr = hostEl.attachShadow({ mode: 'open' });
     sr.appendChild(el('style', { text: POPUP_STYLE }));
-    var widget = document.createElement('calnode-booking');
+    var widget = document.createElement('bonnie-booking');
     widget.setAttribute('slug', slug);
     widget.setAttribute('data-modal', '');
     var close = el('button', { class: 'x', html: SVG_X, 'aria-label': 'Close' });
@@ -550,12 +558,15 @@
   }
 
   function wirePopups(scope) {
-    (scope || document).querySelectorAll('[data-calnode-popup]:not([data-calnode-wired])').forEach(function (b) {
-      b.setAttribute('data-calnode-wired', '1');
-      b.addEventListener('click', function (e) { e.preventDefault(); openPopup(b.getAttribute('data-calnode-popup')); });
+    (scope || document).querySelectorAll('[data-bonnie-popup]:not([data-bonnie-wired]), [data-calnode-popup]:not([data-calnode-wired])').forEach(function (b) {
+      var slug = b.getAttribute('data-bonnie-popup') || b.getAttribute('data-calnode-popup');
+      if (b.hasAttribute('data-bonnie-popup')) b.setAttribute('data-bonnie-wired', '1');
+      else b.setAttribute('data-calnode-wired', '1');
+      b.addEventListener('click', function (e) { e.preventDefault(); openPopup(slug); });
     });
   }
   if (document.readyState !== 'loading') wirePopups();
   else document.addEventListener('DOMContentLoaded', function () { wirePopups(); });
-  window.Calnode = { openPopup: openPopup, wirePopups: wirePopups };
+  window.BonnieScheduling = { openPopup: openPopup, wirePopups: wirePopups };
+  window.Calnode = window.BonnieScheduling;
 })();

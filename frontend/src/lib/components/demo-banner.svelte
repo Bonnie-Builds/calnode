@@ -35,12 +35,12 @@
 		<span class="font-semibold">Public demo</span> — data here is visible to everyone and resets
 		automatically. Don't enter anything private.
 		<a
-			href="https://github.com/Bonnie-Builds/calnode"
+			href="https://bonniebuilds.com"
 			target="_blank"
 			rel="noopener noreferrer"
 			class="ml-1 font-medium underline"
 		>
-			View source
+			Learn about Bonnie
 		</a>
 	</p>
 	<Button

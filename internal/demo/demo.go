@@ -43,12 +43,12 @@ func Seed(ctx context.Context, db *sql.DB) error {
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (id, email, name, iana_timezone, is_admin, is_owner, email_login)
-		VALUES (?, 'demo@calnode.com', 'Demo Owner', 'UTC', 1, 1, 0)`, OwnerUserID); err != nil {
+		VALUES (?, 'demo@bonniebuilds.com', 'Demo Owner', 'UTC', 1, 1, 0)`, OwnerUserID); err != nil {
 		return fmt.Errorf("demo seed: owner user: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (id, email, name, iana_timezone, is_admin, is_owner, email_login)
-		VALUES (?, 'alex@calnode.com', 'Alex Rivera', 'UTC', 0, 0, 0)`, memberUserID); err != nil {
+		VALUES (?, 'alex@bonniebuilds.com', 'Alex Rivera', 'UTC', 0, 0, 0)`, memberUserID); err != nil {
 		return fmt.Errorf("demo seed: member user: %w", err)
 	}
 

@@ -30,6 +30,17 @@ func TestEmbedJS_etagRevalidation(t *testing.T) {
 	if res.Header.Get("Access-Control-Allow-Origin") != "*" {
 		t.Error("embed.js must be CORS-public")
 	}
+	body := rec.Body.String()
+	for _, want := range []string{"bonnie-booking", "data-bonnie-popup", "bonnie:booked", "window.BonnieScheduling"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("embed.js missing Bonnie public identifier %q", want)
+		}
+	}
+	for _, legacy := range []string{"calnode-booking", "data-calnode-popup", "calnode:booked", "window.Calnode"} {
+		if !strings.Contains(body, legacy) {
+			t.Errorf("embed.js missing compatibility identifier %q", legacy)
+		}
+	}
 
 	// A conditional request with the matching ETag returns 304 (no bytes re-shipped).
 	req := httptest.NewRequest(http.MethodGet, "/embed.js", nil)

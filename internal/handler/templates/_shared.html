@@ -21,11 +21,11 @@
 <script>
   window.dataLayer = window.dataLayer || [];
   function gtag(){ dataLayer.push(arguments); }
-  window.__CALNODE_GA4 = "{{.GA4MeasurementID}}";
-  window.__CALNODE_TRACK = { gtm: "{{.GTMContainerID}}", ga4: "{{.GA4MeasurementID}}", loaded: false };
+  window.__BONNIE_GA4 = "{{.GA4MeasurementID}}";
+  window.__BONNIE_TRACK = { gtm: "{{.GTMContainerID}}", ga4: "{{.GA4MeasurementID}}", loaded: false };
   // GA4 conversion — only fires once tracking has been consented to and loaded.
   window.ga4Convert = function (isPaid, value, currency, txnId) {
-    if (!window.__CALNODE_GA4 || !window.__CALNODE_TRACK.loaded) return;
+    if (!window.__BONNIE_GA4 || !window.__BONNIE_TRACK.loaded) return;
     gtag('event', isPaid ? 'purchase' : 'generate_lead', {
       transaction_id: txnId || '',
       value: value || 0,
@@ -34,8 +34,8 @@
   };
   // Injects the real GA4/GTM scripts. Called only on consent (banner Accept, or a stored prior
   // Accept). Idempotent.
-  window.__calnodeLoadTracking = function () {
-    var t = window.__CALNODE_TRACK; if (!t || t.loaded) return; t.loaded = true;
+  window.__bonnieLoadTracking = function () {
+    var t = window.__BONNIE_TRACK; if (!t || t.loaded) return; t.loaded = true;
     if (t.gtm) { (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',t.gtm); }
     if (t.ga4) { var s=document.createElement('script'); s.async=true; s.src='https://www.googletagmanager.com/gtag/js?id='+t.ga4; document.head.appendChild(s); gtag('js', new Date()); gtag('config', t.ga4); }
   };
@@ -55,7 +55,7 @@
 </div>
 <script>
 (function () {
-  var T = window.__CALNODE_TRACK;
+  var T = window.__BONNIE_TRACK;
   if (!T || (!T.gtm && !T.ga4)) return;
   var NAME = 'calnode_consent', VERSION = 1;
   function read() {
@@ -77,16 +77,16 @@
     });
   }
   var banner = document.getElementById('cookie-banner');
-  window.__calnodeOpenConsent = function () { if (banner) banner.hidden = false; };
+  window.__bonnieOpenConsent = function () { if (banner) banner.hidden = false; };
   function hide() { if (banner) banner.hidden = true; }
   var ok = document.getElementById('cookie-accept'), no = document.getElementById('cookie-decline');
-  if (ok) ok.onclick = function () { write(true); hide(); if (window.__calnodeLoadTracking) window.__calnodeLoadTracking(); };
+  if (ok) ok.onclick = function () { write(true); hide(); if (window.__bonnieLoadTracking) window.__bonnieLoadTracking(); };
   if (no) no.onclick = function () { write(false); hide(); clearGA(); };
   var c = read();
   if (c && c.v === VERSION) {
-    if (c.a && window.__calnodeLoadTracking) window.__calnodeLoadTracking();
+    if (c.a && window.__bonnieLoadTracking) window.__bonnieLoadTracking();
   } else {
-    window.__calnodeOpenConsent();
+    window.__bonnieOpenConsent();
   }
 }());
 </script>
@@ -98,13 +98,13 @@
 {{define "legalFooter"}}<footer class="powered-by">
   {{if .PrivacyURL}}<a href="{{.PrivacyURL}}" target="_blank" rel="noopener noreferrer">Privacy</a>{{end}}  <!-- nosemgrep: generic.html-templates.security.var-in-href.var-in-href -->
   {{if .TermsURL}}<a href="{{.TermsURL}}" target="_blank" rel="noopener noreferrer">Terms</a>{{end}}  <!-- nosemgrep: generic.html-templates.security.var-in-href.var-in-href -->
-  {{if or .GTMContainerID .GA4MeasurementID}}<button type="button" class="cookie-link" onclick="window.__calnodeOpenConsent && window.__calnodeOpenConsent()">Cookie settings</button>{{end}}
+  {{if or .GTMContainerID .GA4MeasurementID}}<button type="button" class="cookie-link" onclick="window.__bonnieOpenConsent && window.__bonnieOpenConsent()">Cookie settings</button>{{end}}
   <a href="https://bonniebuilds.com" target="_blank" rel="noopener noreferrer">Bonnie</a>
 </footer>{{end}}
 
 {{define "demoNoindex"}}{{if .DemoMode}}<meta name="robots" content="noindex,nofollow">{{end}}{{end}}
 
-{{define "demoBanner"}}{{if .DemoMode}}<div class="demo-banner"><strong>Public demo</strong> — data here is visible to everyone and resets automatically. Don't enter anything private. <a href="https://github.com/Bonnie-Builds/calnode" target="_blank" rel="noopener noreferrer">View source</a></div>{{end}}{{end}}
+{{define "demoBanner"}}{{if .DemoMode}}<div class="demo-banner"><strong>Public demo</strong> — data here is visible to everyone and resets automatically. Don't enter anything private. <a href="https://bonniebuilds.com" target="_blank" rel="noopener noreferrer">Learn about Bonnie</a></div>{{end}}{{end}}
 
 {{/* Month nav + the day grid. The grid (#cal) is empty here and filled by
      booking-logic.js. Each page wraps this in its own <section> (book shows it

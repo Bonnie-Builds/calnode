@@ -12,15 +12,16 @@
 {{if .DataLayerEnabled}}
 <script>
   window.dataLayer = window.dataLayer || [];
-  window.__CALNODE_DL = { fields: {{.DataLayerFields}} };
-  function calnodePush(eventName, data) {
-    if (!window.__CALNODE_DL) return;
+  window.__BONNIE_DL = { fields: {{.DataLayerFields}} };
+  function bonniePush(eventName, data, legacyEventName) {
+    if (!window.__BONNIE_DL) return;
     var out = { event: eventName };
-    (window.__CALNODE_DL.fields || []).forEach(function (k) {
+    (window.__BONNIE_DL.fields || []).forEach(function (k) {
       var v = data[k];
       if (v !== undefined && v !== null && v !== '') out[k] = v;
     });
     (window.dataLayer = window.dataLayer || []).push(out);
+    if (legacyEventName) window.dataLayer.push(Object.assign({}, out, { event: legacyEventName }));
   }
 </script>
 {{end}}
@@ -476,8 +477,8 @@ html.dark body { background: #0c0d10; color: #e6e6e9; }
       }
       $('success-new-time').textContent = fmtDate(pickedDate) + ' · ' + fmtTime(pickedSlot.start);
       showView('success-reschedule-view');
-      if (window.__CALNODE_DL && typeof calnodePush === 'function') {
-        calnodePush('calnode_booking_rescheduled', {
+      if (window.__BONNIE_DL && typeof bonniePush === 'function') {
+        bonniePush('bonnie_booking_rescheduled', {
           booking_id: {{.BookingID}},
           event_type_slug: SLUG,
           event_type_name: {{.EventTypeName}},
@@ -485,7 +486,7 @@ html.dark body { background: #0c0d10; color: #e6e6e9; }
           start_at: pickedSlot.start,
           host_name: {{.HostName}},
           attendee_timezone: TZ,
-        });
+        }, 'calnode_booking_rescheduled');
       }
     } catch {
       errEl.textContent = 'Network error. Please check your connection and try again.';
@@ -512,8 +513,8 @@ html.dark body { background: #0c0d10; color: #e6e6e9; }
         btn.disabled = false; btn.textContent = 'Yes, cancel booking'; return;
       }
       showView('success-cancel-view');
-      if (window.__CALNODE_DL && typeof calnodePush === 'function') {
-        calnodePush('calnode_booking_cancelled', {
+      if (window.__BONNIE_DL && typeof bonniePush === 'function') {
+        bonniePush('bonnie_booking_cancelled', {
           booking_id: {{.BookingID}},
           event_type_slug: SLUG,
           event_type_name: {{.EventTypeName}},
@@ -521,7 +522,7 @@ html.dark body { background: #0c0d10; color: #e6e6e9; }
           start_at: {{.CurrentStartISO}},
           host_name: {{.HostName}},
           attendee_timezone: TZ,
-        });
+        }, 'calnode_booking_cancelled');
       }
     } catch {
       errEl.textContent = 'Network error. Please check your connection and try again.';
