@@ -119,6 +119,17 @@ func (h *Handler) managedCalendarEmbedCSP() string {
 	return "default-src 'self'; script-src " + scriptSource + "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors " + frameAncestors + "; base-uri 'none'; form-action 'self'"
 }
 
+// managedBookingPagePolicy returns the public booking-page CSP and whether an
+// exact, deployment-qualified Bonnie ancestor exists. The caller omits the
+// legacy X-Frame-Options header only in that explicitly configured case because
+// X-Frame-Options has no interoperable exact-origin allowlist form.
+func (h *Handler) managedBookingPagePolicy(t trackingSettings) (string, bool) {
+	h.managedMu.RLock()
+	ancestors := append([]string(nil), h.managedIdentity.bookingFrameAncestors...)
+	h.managedMu.RUnlock()
+	return publicCSPWithFrameAncestors(t, ancestors), len(ancestors) > 0
+}
+
 // ManagedRoot handles GET / in managed mode: an unauthenticated browser is
 // redirected to the Bonnie launch surface; an authenticated managed member is
 // sent to the configured entry path. Non-managed mode falls through to the

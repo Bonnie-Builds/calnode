@@ -45,19 +45,20 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	h.SetDemoMode(cfg.DemoMode)
 	h.SetBonnieManagedMode(cfg.BonnieManagedMode)
 	h.SetManagedIdentityConfig(handler.ManagedIdentityConfig{
-		Issuer:         cfg.BonnieManagedIssuer,
-		CompanyRef:     cfg.BonnieManagedCompany,
-		JWKSURL:        cfg.BonnieManagedJWKSURL,
-		JWKS:           cfg.BonnieManagedJWKS,
-		AllowedKids:    cfg.BonnieManagedAllowedKids,
-		OperatorKey:    cfg.BonnieManagedOperatorKey,
-		EntryPath:      cfg.BonnieManagedEntryPath,
-		LoginRedirect:  cfg.BonnieManagedLoginRedirect,
-		SessionTTL:     cfg.BonnieManagedSessionTTL,
-		PublicBaseURL:  cfg.PublicBaseURL,
-		SiteDomain:     cfg.BonnieManagedSiteDomain,
-		FrameAncestors: cfg.BonnieManagedFrameAncestors,
-		ScriptSources:  frontend.InlineScriptCSPHashes(),
+		Issuer:                cfg.BonnieManagedIssuer,
+		CompanyRef:            cfg.BonnieManagedCompany,
+		JWKSURL:               cfg.BonnieManagedJWKSURL,
+		JWKS:                  cfg.BonnieManagedJWKS,
+		AllowedKids:           cfg.BonnieManagedAllowedKids,
+		OperatorKey:           cfg.BonnieManagedOperatorKey,
+		EntryPath:             cfg.BonnieManagedEntryPath,
+		LoginRedirect:         cfg.BonnieManagedLoginRedirect,
+		SessionTTL:            cfg.BonnieManagedSessionTTL,
+		PublicBaseURL:         cfg.PublicBaseURL,
+		SiteDomain:            cfg.BonnieManagedSiteDomain,
+		FrameAncestors:        cfg.BonnieManagedFrameAncestors,
+		BookingFrameAncestors: cfg.BonnieManagedBookingFrameAncestors,
+		ScriptSources:         frontend.InlineScriptCSPHashes(),
 	})
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
 

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/calnode/calnode/internal/handler"
 )
 
 func TestBookPage_unknownSlug_returns404(t *testing.T) {
@@ -47,6 +49,39 @@ func TestBookPage_knownSlug_returns200WithHTML(t *testing.T) {
 	}
 	if !strings.Contains(body, "30 min") {
 		t.Error("response body missing duration label")
+	}
+}
+
+func TestBookPage_frameHeadersFailClosedUnlessExactOriginConfigured(t *testing.T) {
+	h, apiKey, _ := setupWorkspace(t)
+	slug, _ := seedEventTypeHTTP(t, h, apiKey)
+
+	request := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/book/"+slug, nil)
+		req.SetPathValue("slug", slug)
+		rec := httptest.NewRecorder()
+		h.BookPage(rec, req)
+		return rec
+	}
+
+	closed := request()
+	if got := closed.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("default X-Frame-Options = %q; want DENY", got)
+	}
+	if got := closed.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("default CSP = %q; want frame-ancestors 'none'", got)
+	}
+
+	h.SetManagedIdentityConfig(handler.ManagedIdentityConfig{
+		SiteDomain:            "localhost",
+		BookingFrameAncestors: []string{"http://localhost:15420"},
+	})
+	allowed := request()
+	if got := allowed.Header().Get("X-Frame-Options"); got != "" {
+		t.Fatalf("configured X-Frame-Options = %q; want omitted", got)
+	}
+	if got := allowed.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors http://localhost:15420") {
+		t.Fatalf("configured CSP = %q; want exact Bonnie origin", got)
 	}
 }
 

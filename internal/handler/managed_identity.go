@@ -25,35 +25,37 @@ import (
 // ManagedIdentityConfig is the frozen Bonnie-managed identity contract.
 // See the controlling plan's "Frozen contracts (Phase 0, 2026-08-07)" section.
 type ManagedIdentityConfig struct {
-	Issuer         string
-	CompanyRef     string
-	JWKSURL        string
-	JWKS           string
-	AllowedKids    []string
-	OperatorKey    string
-	EntryPath      string
-	LoginRedirect  string
-	SessionTTL     time.Duration
-	PublicBaseURL  string
-	SiteDomain     string
-	FrameAncestors []string
-	ScriptSources  []string
+	Issuer                string
+	CompanyRef            string
+	JWKSURL               string
+	JWKS                  string
+	AllowedKids           []string
+	OperatorKey           string
+	EntryPath             string
+	LoginRedirect         string
+	SessionTTL            time.Duration
+	PublicBaseURL         string
+	SiteDomain            string
+	FrameAncestors        []string
+	BookingFrameAncestors []string
+	ScriptSources         []string
 }
 
 type managedIdentityConfig struct {
-	issuer         string
-	companyRef     string
-	jwksURL        string
-	jwksInline     string
-	allowedKids    []string
-	operatorKey    string
-	entryPath      string
-	loginRedirect  string
-	sessionTTL     time.Duration
-	publicBaseURL  string
-	siteDomain     string
-	frameAncestors []string
-	scriptSources  []string
+	issuer                string
+	companyRef            string
+	jwksURL               string
+	jwksInline            string
+	allowedKids           []string
+	operatorKey           string
+	entryPath             string
+	loginRedirect         string
+	sessionTTL            time.Duration
+	publicBaseURL         string
+	siteDomain            string
+	frameAncestors        []string
+	bookingFrameAncestors []string
+	scriptSources         []string
 }
 
 // managedClaimValues is the validated content of a ManagedCalnodeSessionAssertionV1.

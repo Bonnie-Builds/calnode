@@ -66,3 +66,27 @@ func TestManagedCalendarEmbedCSPFailsClosedWithoutQualifiedOrigins(t *testing.T)
 		t.Fatalf("CSP = %q; want generated bootstrap hash without unsafe-inline script authority", got)
 	}
 }
+
+func TestManagedBookingPagePolicyFailsClosedAndAllowsOnlyNormalizedOrigins(t *testing.T) {
+	h := &Handler{}
+	csp, frameAllowed := h.managedBookingPagePolicy(trackingSettings{})
+	if frameAllowed || !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Fatalf("empty policy = (%q, %t); want fail-closed", csp, frameAllowed)
+	}
+
+	h.SetManagedIdentityConfig(ManagedIdentityConfig{
+		SiteDomain: "example.com",
+		BookingFrameAncestors: []string{
+			"https://app.example.com",
+			"https://attacker.example.net",
+			"https://*.example.com",
+		},
+	})
+	csp, frameAllowed = h.managedBookingPagePolicy(trackingSettings{})
+	if !frameAllowed || !strings.Contains(csp, "frame-ancestors https://app.example.com") {
+		t.Fatalf("qualified policy = (%q, %t); want exact Bonnie origin", csp, frameAllowed)
+	}
+	if strings.Contains(csp, "attacker") || strings.Contains(csp, "*") {
+		t.Fatalf("qualified policy = %q; contains hostile or wildcard origin", csp)
+	}
+}

@@ -96,6 +96,10 @@ type Config struct {
 	// BonnieManagedFrameAncestors is the exact comma-separated Bonnie app origin
 	// allowlist for the managed personal-calendar iframe. Empty keeps embed dark.
 	BonnieManagedFrameAncestors []string
+	// BonnieManagedBookingFrameAncestors is the exact comma-separated Bonnie app
+	// origin allowlist for public booking pages. Empty keeps booking-page framing
+	// disabled and preserves the default DENY policy.
+	BonnieManagedBookingFrameAncestors []string
 }
 
 func Load() *Config {
@@ -170,6 +174,7 @@ func Load() *Config {
 	cfg.BonnieManagedSessionTTL = getDuration("BONNIE_MANAGED_SESSION_TTL", time.Hour)
 	cfg.BonnieManagedSiteDomain = strings.ToLower(strings.TrimSpace(os.Getenv("BONNIE_MANAGED_SITE_DOMAIN")))
 	cfg.BonnieManagedFrameAncestors = splitCSV(os.Getenv("BONNIE_MANAGED_FRAME_ANCESTORS"))
+	cfg.BonnieManagedBookingFrameAncestors = splitCSV(os.Getenv("BONNIE_MANAGED_BOOKING_FRAME_ANCESTORS"))
 	cfg.DemoResetInterval = getDuration("DEMO_RESET_INTERVAL", 30*time.Minute)
 
 	return cfg
