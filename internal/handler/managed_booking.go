@@ -111,7 +111,13 @@ func (h *Handler) ManagedBookingUpsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := json.Marshal(toBookingJSON(result))
+	bookingResponse, err := h.toBookingJSONWithEventTypeSlug(r.Context(), result)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "managed booking upsert: load event type", "error", err, "booking_id", result.ID)
+		h.writeCodedError(w, http.StatusInternalServerError, "internal_error", "booking mutation failed")
+		return
+	}
+	response, err := json.Marshal(bookingResponse)
 	if err != nil {
 		h.writeCodedError(w, http.StatusInternalServerError, "internal_error", "booking mutation failed")
 		return
@@ -262,7 +268,13 @@ func (h *Handler) ManagedBookingLocation(w http.ResponseWriter, r *http.Request)
 		h.writeManagedBookingMutationError(w, r, err)
 		return
 	}
-	response, err := json.Marshal(toBookingJSON(updated))
+	bookingResponse, err := h.toBookingJSONWithEventTypeSlug(r.Context(), updated)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "managed booking location: load event type", "error", err, "booking_id", id)
+		h.writeCodedError(w, http.StatusInternalServerError, "internal_error", "booking location update failed")
+		return
+	}
+	response, err := json.Marshal(bookingResponse)
 	if err != nil {
 		h.writeCodedError(w, http.StatusInternalServerError, "internal_error", "booking location update failed")
 		return
@@ -356,7 +368,13 @@ func (h *Handler) ManagedBookingCancel(w http.ResponseWriter, r *http.Request) {
 		h.writeManagedBookingMutationError(w, r, err)
 		return
 	}
-	response, err := json.Marshal(toBookingJSON(cancelled))
+	bookingResponse, err := h.toBookingJSONWithEventTypeSlug(r.Context(), cancelled)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "managed booking cancel: load event type", "error", err, "booking_id", id)
+		h.writeCodedError(w, http.StatusInternalServerError, "internal_error", "booking mutation failed")
+		return
+	}
+	response, err := json.Marshal(bookingResponse)
 	if err != nil {
 		h.writeCodedError(w, http.StatusInternalServerError, "internal_error", "booking mutation failed")
 		return

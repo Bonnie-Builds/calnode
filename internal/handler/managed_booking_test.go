@@ -58,13 +58,14 @@ func TestManagedBookingUpsertCreateAndReplay(t *testing.T) {
 	}
 	var created struct {
 		ID             string `json:"id"`
+		EventTypeSlug  string `json:"event_type_slug"`
 		UpdatedAt      string `json:"updated_at"`
 		CorrelationRef string `json:"correlation_ref"`
 	}
 	if err := json.Unmarshal(first.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create: %v", err)
 	}
-	if created.ID == "" || created.UpdatedAt == "" || created.CorrelationRef == "" {
+	if created.ID == "" || created.EventTypeSlug != slug || created.UpdatedAt == "" || created.CorrelationRef == "" {
 		t.Fatalf("incomplete create response: %+v", created)
 	}
 

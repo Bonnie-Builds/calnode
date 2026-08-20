@@ -572,6 +572,14 @@ func toBookingJSON(b *booking.Booking) bookingJSON {
 	return j
 }
 
+func (h *Handler) toBookingJSONWithEventTypeSlug(ctx context.Context, b *booking.Booking) (bookingJSON, error) {
+	result := toBookingJSON(b)
+	if err := h.db.QueryRowContext(ctx, `SELECT slug FROM event_types WHERE id = ?`, b.EventTypeID).Scan(&result.EventTypeSlug); err != nil {
+		return bookingJSON{}, fmt.Errorf("load booking event type slug: %w", err)
+	}
+	return result, nil
+}
+
 // noConnectedDestination reports whether the given host has no connected destination
 // calendar — the gate for attaching Calnode's own iCalendar invite to an email.
 // When the host *has* a destination on a provider that auto-invites attendees
@@ -1177,7 +1185,13 @@ func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusNotFound, "booking not found")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, toBookingJSON(b))
+	response, err := h.toBookingJSONWithEventTypeSlug(r.Context(), b)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "get booking event type", "error", err, "booking_id", b.ID)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // ListBookings handles GET /v1/bookings (admin — lists bookings for the current user).

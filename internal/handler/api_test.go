@@ -635,6 +635,9 @@ func TestGetBooking_public(t *testing.T) {
 	if b["id"] != bookingID {
 		t.Errorf("id = %v; want %s", b["id"], bookingID)
 	}
+	if b["event_type_slug"] != slug {
+		t.Errorf("event_type_slug = %v; want %s", b["event_type_slug"], slug)
+	}
 }
 
 func TestCancelBooking(t *testing.T) {
