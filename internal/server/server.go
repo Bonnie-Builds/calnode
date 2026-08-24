@@ -12,6 +12,7 @@ import (
 	"github.com/calnode/calnode/internal/calendar"
 	"github.com/calnode/calnode/internal/calendar/microsoft"
 	"github.com/calnode/calnode/internal/config"
+	"github.com/calnode/calnode/internal/custody"
 	"github.com/calnode/calnode/internal/demo"
 	"github.com/calnode/calnode/internal/gcal"
 	"github.com/calnode/calnode/internal/handler"
@@ -166,7 +167,22 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 		h.SetGoogleAuth(googleClientID, googleClientSecret, authRedirect, cfg.CookieSecure)
 		logger.Info("Google OAuth login configured", "redirect_url", authRedirect)
 
-		gc, err := gcal.New(db, googleClientID, googleClientSecret, calRedirect, cfg.EncryptionKey)
+		var gcalOpts []gcal.Option
+		if cfg.CustodyTransportURL != "" {
+			if cfg.CustodyCompanyRef == "" || cfg.CustodyInstanceRef == "" {
+				logger.Error("custody: transport URL set without company/instance ref; custody routing stays off")
+			} else {
+				custodyClient := custody.NewClient(cfg.CustodyTransportURL)
+				if cfg.CustodyAuthHeader != "" {
+					custodyClient = custodyClient.WithCallerAuth(cfg.CustodyAuthHeader)
+				}
+				gcalOpts = append(gcalOpts, gcal.WithCustodyTransport(custodyClient, cfg.CustodyCompanyRef, cfg.CustodyInstanceRef))
+				logger.Info("Bonbon custody transport configured for Google effects",
+					"company_ref", cfg.CustodyCompanyRef, "instance_ref", cfg.CustodyInstanceRef)
+			}
+		}
+
+		gc, err := gcal.New(db, googleClientID, googleClientSecret, calRedirect, cfg.EncryptionKey, gcalOpts...)
 		if err != nil {
 			logger.Error("gcal: init failed", "error", err)
 		} else {

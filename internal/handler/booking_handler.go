@@ -1028,15 +1028,16 @@ func (h *Handler) createHostEventsAndNotify(ctx context.Context, b *booking.Book
 				additionalAttendees = append(additionalAttendees, calendar.EventAttendee{Name: participant.Name, Email: participant.Email})
 			}
 			eventID, link, err := gc.CreateEvent(ctx, host.UserID, calendar.CreateEventParams{
-				Summary:        in.EventTypeName + " with " + in.OrganizerName,
-				Description:    "Booking ID: " + b.ID,
-				Location:       meetURL, // empty until the primary creates it; secondary hosts get the link
-				Start:          b.StartAt,
-				End:            b.EndAt,
-				OrganizerName:  in.OrganizerName,
-				OrganizerEmail: in.OrganizerEmail,
-				Attendees:      additionalAttendees,
-				AddMeet:        autoGenMeet && host.IsPrimary,
+				Summary:            in.EventTypeName + " with " + in.OrganizerName,
+				Description:        "Booking ID: " + b.ID,
+				Location:           meetURL, // empty until the primary creates it; secondary hosts get the link
+				Start:              b.StartAt,
+				End:                b.EndAt,
+				OrganizerName:      in.OrganizerName,
+				OrganizerEmail:     in.OrganizerEmail,
+				Attendees:          additionalAttendees,
+				AddMeet:            autoGenMeet && host.IsPrimary,
+				StableOperationKey: "bk:" + b.ID + ":" + host.UserID,
 			})
 			if err != nil {
 				h.logger.Error("create gcal event", "error", err, "booking_id", b.ID, "host", host.UserID)

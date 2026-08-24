@@ -100,6 +100,18 @@ type Config struct {
 	// origin allowlist for public booking pages. Empty keeps booking-page framing
 	// disabled and preserves the default DENY policy.
 	BonnieManagedBookingFrameAncestors []string
+
+	// Bonbon custody transport (Phase 3): when CustodyTransportURL is set, the
+	// Google calendar effects ride Bonbon's operation-shaped custody boundary
+	// instead of direct Google API calls. No credential material or
+	// credential-kind selection ever passes through Calnode.
+	CustodyTransportURL string
+	// CustodyCompanyRef defaults to BonnieManagedCompany (the canonical company ref).
+	CustodyCompanyRef string
+	// CustodyInstanceRef pins this deployment's instance reference (required with a URL).
+	CustodyInstanceRef string
+	// CustodyAuthHeader is optional deployment-boundary caller auth (NOT a calendar credential).
+	CustodyAuthHeader string
 }
 
 func Load() *Config {
@@ -175,6 +187,13 @@ func Load() *Config {
 	cfg.BonnieManagedSiteDomain = strings.ToLower(strings.TrimSpace(os.Getenv("BONNIE_MANAGED_SITE_DOMAIN")))
 	cfg.BonnieManagedFrameAncestors = splitCSV(os.Getenv("BONNIE_MANAGED_FRAME_ANCESTORS"))
 	cfg.BonnieManagedBookingFrameAncestors = splitCSV(os.Getenv("BONNIE_MANAGED_BOOKING_FRAME_ANCESTORS"))
+	cfg.CustodyTransportURL = strings.TrimSpace(os.Getenv("BONNIE_CUSTODY_TRANSPORT_URL"))
+	cfg.CustodyCompanyRef = strings.TrimSpace(os.Getenv("BONNIE_CUSTODY_COMPANY_REF"))
+	cfg.CustodyInstanceRef = strings.TrimSpace(os.Getenv("BONNIE_CUSTODY_INSTANCE_REF"))
+	if cfg.CustodyCompanyRef == "" {
+		cfg.CustodyCompanyRef = cfg.BonnieManagedCompany
+	}
+	cfg.CustodyAuthHeader = os.Getenv("BONNIE_CUSTODY_AUTH_HEADER")
 	cfg.DemoResetInterval = getDuration("DEMO_RESET_INTERVAL", 30*time.Minute)
 
 	return cfg
