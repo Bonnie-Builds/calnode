@@ -504,6 +504,57 @@ func TestManagedMemberRequiresOperator(t *testing.T) {
 	}
 }
 
+func TestManagedMemberRebindPreservesProviderConnectionAndRotatesKey(t *testing.T) {
+	h, database := managedSetup(t)
+	oldKey := "old-member-key-0123456789abcdef0123456789abcdef"
+	newKey := "new-member-key-0123456789abcdef0123456789abcdef"
+	ensureBody, _ := json.Marshal(map[string]string{
+		"sub": "legacy-subject", "email": "legacy@example.com", "name": "Legacy",
+		"member_api_key": oldKey,
+	})
+	ensureReq := httptest.NewRequest(http.MethodPost, "/v1/managed/members", bytes.NewReader(ensureBody))
+	ensureReq.Header.Set("X-Operator-Key", "operator-secret-0123456789")
+	ensureRec := httptest.NewRecorder()
+	h.RequireManagedOperator(h.ManagedEnsureMember)(ensureRec, ensureReq)
+	if ensureRec.Code != http.StatusOK {
+		t.Fatalf("ensure legacy member: got %d body=%s", ensureRec.Code, ensureRec.Body.String())
+	}
+	var userID string
+	if err := database.QueryRow(`SELECT id FROM users WHERE managed_subject = 'legacy-subject'`).Scan(&userID); err != nil {
+		t.Fatalf("load legacy member: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO calendar_connections
+		(id, user_id, provider, access_token_enc, calendar_id, is_destination)
+		VALUES ('connection-1', ?, 'google', 'encrypted-token', 'primary', 1)`, userID); err != nil {
+		t.Fatalf("seed provider connection: %v", err)
+	}
+	rebindBody, _ := json.Marshal(map[string]string{
+		"new_sub": "bonnie:canonical-subject", "member_api_key": newKey,
+	})
+	rebindReq := httptest.NewRequest(http.MethodPost, "/v1/managed/members/legacy-subject/rebind", bytes.NewReader(rebindBody))
+	rebindReq.SetPathValue("sub", "legacy-subject")
+	rebindReq.Header.Set("X-Operator-Key", "operator-secret-0123456789")
+	rebindRec := httptest.NewRecorder()
+	h.RequireManagedOperator(h.ManagedRebindMember)(rebindRec, rebindReq)
+	if rebindRec.Code != http.StatusOK {
+		t.Fatalf("rebind member: got %d body=%s", rebindRec.Code, rebindRec.Body.String())
+	}
+	var subject, keyHash string
+	var connections int
+	if err := database.QueryRow(`SELECT managed_subject FROM users WHERE id = ?`, userID).Scan(&subject); err != nil {
+		t.Fatalf("read rebound subject: %v", err)
+	}
+	if err := database.QueryRow(`SELECT key_hash FROM api_keys WHERE user_id = ? AND name = 'bonnie-managed-member'`, userID).Scan(&keyHash); err != nil {
+		t.Fatalf("read rebound key: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM calendar_connections WHERE user_id = ?`, userID).Scan(&connections); err != nil {
+		t.Fatalf("read preserved connection: %v", err)
+	}
+	if subject != "bonnie:canonical-subject" || keyHash != sha256HexForTest(newKey) || keyHash == sha256HexForTest(oldKey) || connections != 1 {
+		t.Fatalf("rebind result mismatch: subject=%q connections=%d", subject, connections)
+	}
+}
+
 func TestManagedSurfaceDenialMiddleware(t *testing.T) {
 	h, database := managedSetup(t)
 	// Create a managed member with a session cookie.

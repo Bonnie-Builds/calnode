@@ -313,6 +313,7 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 		// Operator-key-only managed member lifecycle. These authenticate via
 		// X-Operator-Key, never a browser session or member API key.
 		mux.HandleFunc("POST /v1/managed/members", h.RequireManagedOperator(h.ManagedEnsureMember))
+		mux.HandleFunc("POST /v1/managed/members/{sub}/rebind", h.RequireManagedOperator(h.ManagedRebindMember))
 		mux.HandleFunc("POST /v1/managed/members/{sub}/archive", h.RequireManagedOperator(h.ManagedArchiveMember))
 		mux.HandleFunc("POST /v1/managed/members/{sub}/reactivate", h.RequireManagedOperator(h.ManagedReactivateMember))
 		mux.HandleFunc("POST /v1/managed/members/{sub}/webhooks", h.RequireManagedOperator(h.ManagedCreateMemberWebhook))

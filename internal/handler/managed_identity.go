@@ -578,7 +578,11 @@ func (h *Handler) ensureManagedMember(ctx context.Context, sub, email, name, mem
 
 // upsertManagedMemberKey installs the Bonbon-generated member API key for a user.
 // Only the SHA-256 hash is stored; the key itself is never persisted.
-func upsertManagedMemberKey(ctx context.Context, db *sql.DB, userID, memberAPIKey string) error {
+type managedMemberKeyExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func upsertManagedMemberKey(ctx context.Context, db managedMemberKeyExecutor, userID, memberAPIKey string) error {
 	hash := hashAPIKey(memberAPIKey)
 	res, err := db.ExecContext(ctx,
 		`UPDATE api_keys SET key_hash = ? WHERE user_id = ? AND name = ?`,
@@ -598,6 +602,49 @@ func upsertManagedMemberKey(ctx context.Context, db *sql.DB, userID, memberAPIKe
 		return err
 	}
 	return nil
+}
+
+// rebindManagedMember performs an explicit subject migration while retaining
+// the same Calnode user and all user-owned provider connections.
+func (h *Handler) rebindManagedMember(ctx context.Context, previousSub, newSub, memberAPIKey string) error {
+	h.managedMu.RLock()
+	companyRef := h.managedIdentity.companyRef
+	h.managedMu.RUnlock()
+	previousSub = strings.TrimSpace(previousSub)
+	newSub = strings.TrimSpace(newSub)
+	if previousSub == "" || newSub == "" || previousSub == newSub || len(previousSub) > 512 || len(newSub) > 512 {
+		return errors.New("managed member: invalid rebind")
+	}
+	if len(memberAPIKey) < 32 {
+		return errors.New("managed member: member key too short")
+	}
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	var userID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id FROM users
+		WHERE managed_subject = ? AND company_ref = ? AND is_managed_member = 1 AND archived_at IS NULL`,
+		previousSub, companyRef).Scan(&userID); err != nil {
+		return err
+	}
+	var collisionID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE managed_subject = ? LIMIT 1`, newSub).Scan(&collisionID)
+	if err == nil && collisionID != userID {
+		return errIdentityCollision
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET managed_subject = ? WHERE id = ?`, newSub, userID); err != nil {
+		return err
+	}
+	if err := upsertManagedMemberKey(ctx, tx, userID, memberAPIKey); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // archiveManagedMember archives the managed member and revokes sessions, member

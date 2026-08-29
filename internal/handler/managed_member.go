@@ -73,6 +73,47 @@ func (h *Handler) ManagedEnsureMember(w http.ResponseWriter, r *http.Request) {
 	_ = userID
 }
 
+// ManagedRebindMember handles POST /v1/managed/members/{sub}/rebind. It is an
+// explicit operator-only migration from a legacy managed subject to a new
+// stable subject. The Calnode user row is retained, so provider connections
+// stay in Calnode custody, while the caller-supplied member key is rotated.
+func (h *Handler) ManagedRebindMember(w http.ResponseWriter, r *http.Request) {
+	previousSub := strings.TrimSpace(r.PathValue("sub"))
+	r.Body = http.MaxBytesReader(w, r.Body, maxOperatorBody)
+	var req struct {
+		NewSub       string `json:"new_sub"`
+		MemberAPIKey string `json:"member_api_key"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid rebind request")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid rebind request")
+		return
+	}
+	if err := h.rebindManagedMember(r.Context(), previousSub, req.NewSub, req.MemberAPIKey); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			h.writeCodedError(w, http.StatusNotFound, "member_not_found", "managed member not found")
+			return
+		}
+		if errors.Is(err, errIdentityCollision) {
+			h.writeCodedError(w, http.StatusConflict, "identity_collision", "identity collision")
+			return
+		}
+		if strings.Contains(err.Error(), "invalid rebind") || strings.Contains(err.Error(), "too short") {
+			h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid rebind request")
+			return
+		}
+		h.logger.ErrorContext(r.Context(), "managed member rebind failed", "error", err)
+		h.writeCodedError(w, http.StatusServiceUnavailable, "member_unavailable", "member unavailable")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{"sub": req.NewSub, "role": "member"})
+}
+
 // ManagedArchiveMember handles POST /v1/managed/members/{sub}/archive.
 func (h *Handler) ManagedArchiveMember(w http.ResponseWriter, r *http.Request) {
 	sub := r.PathValue("sub")
