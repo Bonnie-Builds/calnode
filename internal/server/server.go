@@ -12,6 +12,7 @@ import (
 	"github.com/calnode/calnode/internal/calendar"
 	"github.com/calnode/calnode/internal/calendar/microsoft"
 	"github.com/calnode/calnode/internal/config"
+	"github.com/calnode/calnode/internal/custody"
 	"github.com/calnode/calnode/internal/demo"
 	"github.com/calnode/calnode/internal/gcal"
 	"github.com/calnode/calnode/internal/handler"
@@ -149,24 +150,46 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	// DB Google settings take priority over env vars.
 	googleClientID := cfg.GoogleClientID
 	googleClientSecret := cfg.GoogleClientSecret
-	if dbGoogle, dbGoogleErr := handler.LoadGoogleSettingsFromDB(db, encKey); dbGoogleErr != nil {
-		logger.Warn("google settings: could not load from database", "error", dbGoogleErr)
-	} else if dbGoogle != nil {
-		googleClientID = dbGoogle.ClientID
-		googleClientSecret = dbGoogle.ClientSecret
-		logger.Info("Google OAuth: credentials loaded from database")
+	if cfg.CustodyTransportURL != "" {
+		googleClientID = ""
+		googleClientSecret = ""
+	} else {
+		if dbGoogle, dbGoogleErr := handler.LoadGoogleSettingsFromDB(db, encKey); dbGoogleErr != nil {
+			logger.Warn("google settings: could not load from database", "error", dbGoogleErr)
+		} else if dbGoogle != nil {
+			googleClientID = dbGoogle.ClientID
+			googleClientSecret = dbGoogle.ClientSecret
+			logger.Info("Google OAuth: credentials loaded from database")
+		}
 	}
 
 	// Build one calendar Service and register every configured provider into it.
 	calSvc := calendar.NewService(db)
 	calRedirect := cfg.BaseURL + "/v1/calendar/callback"
 
-	if googleClientID != "" {
+	if googleClientID != "" && googleClientSecret != "" {
 		authRedirect := cfg.BaseURL + "/v1/auth/callback"
 		h.SetGoogleAuth(googleClientID, googleClientSecret, authRedirect, cfg.CookieSecure)
 		logger.Info("Google OAuth login configured", "redirect_url", authRedirect)
+	}
 
-		gc, err := gcal.New(db, googleClientID, googleClientSecret, calRedirect, cfg.EncryptionKey)
+	if (googleClientID != "" && googleClientSecret != "") || cfg.CustodyTransportURL != "" {
+		var gcalOpts []gcal.Option
+		if cfg.CustodyTransportURL != "" {
+			if cfg.CustodyCompanyRef == "" || cfg.CustodyInstanceRef == "" {
+				logger.Error("custody: transport URL set without company/instance ref; custody routing stays off")
+			} else {
+				custodyClient := custody.NewClient(cfg.CustodyTransportURL)
+				if cfg.CustodyAuthHeader != "" {
+					custodyClient = custodyClient.WithCallerAuth(cfg.CustodyAuthHeader)
+				}
+				gcalOpts = append(gcalOpts, gcal.WithCustodyTransport(custodyClient, cfg.CustodyCompanyRef, cfg.CustodyInstanceRef))
+				logger.Info("Bonbon custody transport configured for Google effects",
+					"company_ref", cfg.CustodyCompanyRef, "instance_ref", cfg.CustodyInstanceRef)
+			}
+		}
+
+		gc, err := gcal.New(db, googleClientID, googleClientSecret, calRedirect, cfg.EncryptionKey, gcalOpts...)
 		if err != nil {
 			logger.Error("gcal: init failed", "error", err)
 		} else {

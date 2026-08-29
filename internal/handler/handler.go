@@ -49,7 +49,7 @@ type Handler struct {
 	livekitMu         sync.RWMutex
 	livekit           *livekit.Client // nil when LiveKit video is unconfigured
 	demoMode          bool            // true on the public demo instance: disables calendar/Zoom connect
-	bonnieManagedMode bool            // true when Bonnie owns identity/session entry for this instance
+	bonnieManagedMode bool            // true when Bonnie owns Google consent and provisions calendar credentials
 	demoResetInterval time.Duration
 	demoMu            sync.RWMutex
 	demoNextResetAt   time.Time
@@ -203,8 +203,8 @@ func (h *Handler) SetDemoMode(v bool) {
 	h.demoMode = v
 }
 
-// SetBonnieManagedMode enables Bonnie-owned identity and managed member entry.
-// Provider authorization remains owned by Calnode after session exchange.
+// SetBonnieManagedMode makes Bonnie the only Google-consent surface. Calendar
+// credentials must then arrive through the API-key-only managed endpoint.
 func (h *Handler) SetBonnieManagedMode(v bool) {
 	h.bonnieManagedMode = v
 }
@@ -304,10 +304,6 @@ func (h *Handler) isEmailEnabled() bool {
 
 func (h *Handler) writeError(w http.ResponseWriter, status int, msg string) {
 	h.writeJSON(w, status, map[string]string{"error": msg})
-}
-
-func (h *Handler) writeCodedError(w http.ResponseWriter, status int, code, message string) {
-	h.writeJSON(w, status, map[string]string{"error": message, "code": code})
 }
 
 // requireAdmin resolves the authenticated caller and writes a 403 (returning
