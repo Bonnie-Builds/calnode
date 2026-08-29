@@ -191,19 +191,41 @@ func (h *Handler) CalendarStatus(w http.ResponseWriter, r *http.Request) {
 	if conns == nil {
 		conns = []calendar.Connection{}
 	}
-	// Back-compat fields: `connected` + `provider` reflect the destination connection.
+	// Back-compat fields: `connected` + `provider` reflect the effective
+	// destination. In Bonnie-managed custody mode the destination is a
+	// credential-free projection: Calnode knows the exact member/provider but
+	// neither stores nor claims ownership of the Bonbon OAuth grant.
 	var destProvider string
 	for _, c := range conns {
 		if c.IsDestination {
 			destProvider = c.Provider
 		}
 	}
+	var managedDestination any
+	connected := len(conns) > 0
+	if h.bonnieManagedMode && len(conns) == 0 {
+		hasDestination, destinationErr := svc.HasDestination(r.Context(), user.ID)
+		if destinationErr != nil {
+			h.logger.ErrorContext(r.Context(), "calendar status: managed destination", "error", destinationErr)
+			h.writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if hasDestination {
+			destProvider = "google"
+			connected = true
+			managedDestination = map[string]any{
+				"provider":      destProvider,
+				"account_email": user.Email,
+			}
+		}
+	}
 	resp := map[string]any{
-		"connected":         len(conns) > 0,
-		"configured":        true,
-		"managed_by_bonnie": h.bonnieManagedMode,
-		"providers":         svc.ProviderNames(),
-		"connections":       conns,
+		"connected":           connected,
+		"configured":          true,
+		"managed_by_bonnie":   h.bonnieManagedMode,
+		"managed_destination": managedDestination,
+		"providers":           svc.ProviderNames(),
+		"connections":         conns,
 	}
 	if destProvider != "" {
 		resp["provider"] = destProvider

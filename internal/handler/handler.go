@@ -49,7 +49,7 @@ type Handler struct {
 	livekitMu         sync.RWMutex
 	livekit           *livekit.Client // nil when LiveKit video is unconfigured
 	demoMode          bool            // true on the public demo instance: disables calendar/Zoom connect
-	bonnieManagedMode bool            // true when Bonnie owns Google consent and provisions calendar credentials
+	bonnieManagedMode bool            // true when Bonbon owns Google consent and provider credentials
 	demoResetInterval time.Duration
 	demoMu            sync.RWMutex
 	demoNextResetAt   time.Time
@@ -203,8 +203,8 @@ func (h *Handler) SetDemoMode(v bool) {
 	h.demoMode = v
 }
 
-// SetBonnieManagedMode makes Bonnie the only Google-consent surface. Calendar
-// credentials must then arrive through the API-key-only managed endpoint.
+// SetBonnieManagedMode makes Bonbon authorization the only Google-consent and
+// credential surface. Calnode retains only managed member and scheduling state.
 func (h *Handler) SetBonnieManagedMode(v bool) {
 	h.bonnieManagedMode = v
 }
