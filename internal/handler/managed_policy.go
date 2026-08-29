@@ -166,7 +166,7 @@ type managedDenyRule struct {
 	prefix string // path prefix to deny
 }
 
-// managedDeniedRoutes are the native/admin/developer/provider-consent surfaces
+// managedDeniedRoutes are the native/admin/developer/provider-administration surfaces
 // that managed members can never reach (server-side denial).
 var managedDeniedRoutes = []managedDenyRule{
 	// Native auth / claim / invite
@@ -210,9 +210,7 @@ var managedDeniedRoutes = []managedDenyRule{
 	{method: "POST", prefix: "/oauth/token"},
 	{method: "POST", prefix: "/mcp"},
 	{method: "GET", prefix: "/mcp"},
-	// Native provider-consent connect/callback routes
-	{method: "GET", prefix: "/v1/calendar/connect"},
-	{method: "GET", prefix: "/v1/calendar/callback"},
+	// Native provider-consent routes other than the member's own calendar.
 	{method: "GET", prefix: "/v1/zoom/connect"},
 	{method: "GET", prefix: "/v1/zoom/callback"},
 	{method: "POST", prefix: "/v1/calendar/caldav/connect"},
@@ -313,6 +311,9 @@ func (h *Handler) managedAPIKeyCaller(r *http.Request, rawKey string) (AuthUser,
 }
 
 func isManagedPersonalUserRoute(method, path string) bool {
+	if path == "/v1/calendar/connect" || path == "/v1/calendar/callback" {
+		return method == http.MethodGet
+	}
 	if path == "/v1/users/me" {
 		return method == http.MethodGet || method == http.MethodPatch
 	}

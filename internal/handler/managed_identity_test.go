@@ -611,6 +611,22 @@ func TestManagedSurfaceDenialMiddleware(t *testing.T) {
 		t.Fatalf("managed API-key caller should be denied create API key, got %d", apiRec.Code)
 	}
 
+	calendarConnectReq := httptest.NewRequest(http.MethodGet, "/v1/calendar/connect", nil)
+	calendarConnectReq.Header.Set("X-API-Key", rawKey)
+	calendarConnectRec := httptest.NewRecorder()
+	h.ManagedDenyMiddleware(next).ServeHTTP(calendarConnectRec, calendarConnectReq)
+	if calendarConnectRec.Code != http.StatusOK {
+		t.Fatalf("managed member calendar consent should remain Calnode-owned, got %d", calendarConnectRec.Code)
+	}
+
+	calendarCallbackReq := httptest.NewRequest(http.MethodGet, "/v1/calendar/callback?state=opaque", nil)
+	calendarCallbackReq.AddCookie(&http.Cookie{Name: "calnode_session", Value: sessID})
+	calendarCallbackRec := httptest.NewRecorder()
+	h.ManagedDenyMiddleware(next).ServeHTTP(calendarCallbackRec, calendarCallbackReq)
+	if calendarCallbackRec.Code != http.StatusOK {
+		t.Fatalf("managed member calendar callback should remain Calnode-owned, got %d", calendarCallbackRec.Code)
+	}
+
 	webhookReq := httptest.NewRequest(http.MethodPost, "/v1/webhooks", nil)
 	webhookReq.Header.Set("X-API-Key", rawKey)
 	webhookRec := httptest.NewRecorder()
