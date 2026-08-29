@@ -128,10 +128,20 @@ func (s *Service) ProviderNames() []string {
 func (s *Service) providerForDestination(ctx context.Context, userID string) Provider {
 	var name string
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT provider FROM calendar_connections WHERE user_id = ? AND is_destination = 1 LIMIT 1`, userID).Scan(&name); err != nil {
-		return nil
+		`SELECT provider FROM calendar_connections WHERE user_id = ? AND is_destination = 1 LIMIT 1`, userID).Scan(&name); err == nil {
+		return s.providers[name]
 	}
-	return s.providers[name]
+
+	// A managed provider can own the destination outside Calnode's database.
+	// This is how the Bonbon-custodied Google adapter remains credential-free:
+	// Calnode keeps only its managed member and scheduling state, while the
+	// provider decides whether that member has a usable logical destination.
+	for _, p := range s.providers {
+		if ok, err := p.HasDestination(ctx, userID); err == nil && ok {
+			return p
+		}
+	}
+	return nil
 }
 
 // Connected reports whether the user has any calendar connection, and which provider.
@@ -160,7 +170,12 @@ func (s *Service) CanAutoGenerate(ctx context.Context, userID, locType string) (
 		`SELECT provider, COALESCE(account_kind, '') FROM calendar_connections WHERE user_id = ? AND is_destination = 1 LIMIT 1`,
 		userID).Scan(&provider, &kind)
 	if err == sql.ErrNoRows {
-		return false, nil
+		if p := s.providerForDestination(ctx, userID); p != nil {
+			provider = p.Name()
+			err = nil
+		} else {
+			return false, nil
+		}
 	}
 	if err != nil {
 		return false, err

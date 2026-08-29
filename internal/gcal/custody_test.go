@@ -130,6 +130,26 @@ func TestCustodyCreateEvent_envelopeCarriesExactContractShape(t *testing.T) {
 	}
 }
 
+func TestCustodyManagedMemberIsDestinationWithoutLocalConnection(t *testing.T) {
+	c := newCustodyTestClient(t, &fakeCustodyTransport{})
+	seedDestinationConnection(t, c, "user-1", "member@workspace.example.com")
+
+	connected, err := c.Connected(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("Connected: %v", err)
+	}
+	if connected {
+		t.Fatal("custody-managed member must not require a Calnode connection row")
+	}
+	hasDestination, err := c.HasDestination(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("HasDestination: %v", err)
+	}
+	if !hasDestination {
+		t.Fatal("custody-managed member should route through the managed Google destination")
+	}
+}
+
 func TestCustodyCreateEvent_emptyStableKeyFailsClosedPreNetwork(t *testing.T) {
 	tx := &fakeCustodyTransport{}
 	c := newCustodyTestClient(t, tx)
@@ -430,4 +450,3 @@ func custodyCreateParams(stableKey string, start time.Time) calendar.CreateEvent
 		StableOperationKey: stableKey,
 	}
 }
-

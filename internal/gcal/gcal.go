@@ -602,6 +602,10 @@ func (c *Client) DestinationClient(ctx context.Context, userID string) (*http.Cl
 // (somewhere to write events). Used by the reconciler to skip hosts who can
 // never get a calendar event, avoiding pointless retries.
 func (c *Client) HasDestination(ctx context.Context, userID string) (bool, error) {
+	if c.custodyEnabled() {
+		_, ok := c.destinationMemberSub(ctx, userID)
+		return ok, nil
+	}
 	var x int
 	err := c.db.QueryRowContext(ctx,
 		`SELECT 1 FROM calendar_connections WHERE user_id = ? AND provider = 'google' AND is_destination = 1 LIMIT 1`,
