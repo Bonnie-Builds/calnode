@@ -163,14 +163,13 @@ func (h *Handler) ReassignBooking(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			newEventID, _, err := gc.CreateEvent(ctx, newHostID, calendar.CreateEventParams{
-				Summary:            etName + " with " + orgName,
-				Description:        "Booking ID: " + bCopy.ID,
-				Location:           bCopy.LocationValue, // keep the existing Meet link (don't mint a new one)
-				Start:              bCopy.StartAt,
-				End:                bCopy.EndAt,
-				OrganizerName:      orgName,
-				OrganizerEmail:     orgEmail,
-				StableOperationKey: "bk:" + bCopy.ID + ":" + newHostID,
+				Summary:        etName + " with " + orgName,
+				Description:    "Booking ID: " + bCopy.ID,
+				Location:       bCopy.LocationValue, // keep the existing Meet link (don't mint a new one)
+				Start:          bCopy.StartAt,
+				End:            bCopy.EndAt,
+				OrganizerName:  orgName,
+				OrganizerEmail: orgEmail,
 			})
 			if err != nil {
 				h.logger.Error("reassign: create new calendar event", "error", err, "booking_id", bCopy.ID)

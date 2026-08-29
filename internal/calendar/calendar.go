@@ -24,10 +24,6 @@ type CreateEventParams struct {
 	OrganizerEmail string
 	Attendees      []EventAttendee
 	AddMeet        bool
-	// StableOperationKey identifies the logical create/upsert effect across
-	// retries (booking ID + host user). Direct providers ignore it; the
-	// Bonbon custody transport adapter requires it (fail-closed without one).
-	StableOperationKey string
 }
 
 // EventAttendee is an additional guest on the provider event. OrganizerName /

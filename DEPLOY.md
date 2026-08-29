@@ -34,7 +34,7 @@ This guide covers a generic Docker deploy and a step-by-step **Railway** deploy
 | `EMAIL_SMTP_TLS` / `_STARTTLS` | no | `false` | `STARTTLS` for 587, implicit `TLS` for 465. |
 | `EMAIL_FROM_ADDRESS` / `EMAIL_FROM_NAME` | no | `bookings@localhost` / `Bonnie` | The From identity. Resend requires a verified sender address. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | no | — | Google sign-in + calendar. Can also be set in Settings → Google OAuth. |
-| `BONNIE_MANAGED_MODE` | no | `false` | Bonnie integration mode. Disables Calnode's browser calendar-consent route and enables the API-key-only managed Google credential endpoints described in §5.1. |
+| `BONNIE_MANAGED_MODE` | no | `false` | Enables Bonnie-managed identity, members, and booking surfaces. Calnode continues to own calendar OAuth and provider effects. |
 | `LITESTREAM_REPLICA_URL` | recommended | — | Enables continuous SQLite backup (see §6). |
 | `COOKIE_SECURE` | no | https→true | Override cookie Secure flag; defaults from `BASE_URL` scheme. |
 | `LOG_LEVEL` | no | `info` | `debug`/`info`/`warn`/`error`. |
@@ -125,29 +125,13 @@ page shows the exact redirect URIs for the running instance). Calendar is a
 sensitive scope, so submit the app for verification before wide public use
 (unverified = warning screen + 100-user cap).
 
-### 5.1 Bonnie-managed Google Calendar consent
+### 5.1 Bonnie-managed member calendar connection
 
-Set `BONNIE_MANAGED_MODE=true` when Bonnie owns the user-facing Google consent
-flow. Bonnie and Calnode must be configured with the **same Google OAuth client
-ID**; Calnode validates the access token audience, full Calendar scope, and
-primary-account identity before accepting a connection. Calnode then keeps an
-encrypted operational copy of the access and refresh tokens so booking and
-reconciliation continue without another user grant.
-
-Managed mode changes the calendar connection boundary:
-
-- `GET /v1/calendar/connect` returns `409 managed_by_bonnie`; Calnode cannot
-  initiate a second calendar consent.
-- `PUT /v1/calendar/managed/google` installs the authenticated member's Google
-  credential. It accepts only `X-API-Key` or bearer API-key authentication;
-  browser sessions are rejected, and the body has no user identifier.
-- `DELETE /v1/calendar/managed/google` removes the authenticated member's Google
-  connection through the same API-key-only boundary.
-- `GET /v1/calendar/status` reports `managed_by_bonnie: true`.
-
-Use a Calnode API key belonging to the exact member whose Bonnie Google
-connection is being installed. Send these endpoints only over HTTPS. Tokens are
-never returned by either managed endpoint and must not pass through a browser.
+With `BONNIE_MANAGED_MODE=true`, Bonnie exchanges a company/member assertion for
+a Calnode browser session. From that session, the member connects Google through
+`GET /v1/calendar/connect`. Calnode owns the OAuth client, consent callback,
+encrypted token storage, refresh lifecycle, and every Google Calendar effect.
+Bonnie and Bonbon never receive Google access tokens or refresh tokens.
 
 ---
 

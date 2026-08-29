@@ -78,9 +78,6 @@ func (r calEventResp) meetLink() string {
 // p.AddMeet is set, the generated Google Meet URL. Returns ("", "", nil) if the
 // user has no is_destination connection.
 func (c *Client) CreateEvent(ctx context.Context, userID string, p calendar.CreateEventParams) (string, string, error) {
-	if c.custodyEnabled() {
-		return c.custodyCreateEvent(ctx, userID, p)
-	}
 	hc, calID, err := c.DestinationClient(ctx, userID)
 	if err != nil || hc == nil {
 		return "", "", err
@@ -150,9 +147,6 @@ func (c *Client) CreateEvent(ctx context.Context, userID string, p calendar.Crea
 // Returns nil if eventID is empty or the user has no connection. sendUpdates=all
 // so the attendee is notified of the new time.
 func (c *Client) UpdateEvent(ctx context.Context, userID, eventID string, start, end time.Time) error {
-	if c.custodyEnabled() {
-		return c.custodyUpdateEvent(ctx, userID, eventID, start, end, nil)
-	}
 	if eventID == "" {
 		return nil
 	}
@@ -193,9 +187,6 @@ func (c *Client) UpdateEvent(ctx context.Context, userID, eventID string, start,
 
 // UpdateEventLocation patches only the event location and notifies guests.
 func (c *Client) UpdateEventLocation(ctx context.Context, userID, eventID, location string) error {
-	if c.custodyEnabled() {
-		return c.custodyUpdateEvent(ctx, userID, eventID, time.Time{}, time.Time{}, &location)
-	}
 	if eventID == "" {
 		return nil
 	}
@@ -229,9 +220,6 @@ func (c *Client) UpdateEventLocation(ctx context.Context, userID, eventID, locat
 // CancelEvent deletes a Google Calendar event by its event ID.
 // Returns nil if eventID is empty or the user has no connection.
 func (c *Client) CancelEvent(ctx context.Context, userID, eventID string) error {
-	if c.custodyEnabled() {
-		return c.custodyCancelEvent(ctx, userID, eventID)
-	}
 	if eventID == "" {
 		return nil
 	}

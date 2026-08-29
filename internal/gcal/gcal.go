@@ -51,9 +51,7 @@ func (c *Client) Name() string { return "google" }
 // so Calnode must not also attach an .ics (it would duplicate).
 func (c *Client) InvitesGuests() bool { return true }
 
-// Client manages Google Calendar OAuth tokens and API access. When a custody
-// transport is configured (WithCustodyTransport) its Google effects ride
-// Bonbon's operation-shaped custody boundary instead (internal/gcal/custody.go).
+// Client manages Google Calendar OAuth tokens and API access.
 type Client struct {
 	config           *oauth2.Config
 	key              [32]byte
@@ -62,11 +60,6 @@ type Client struct {
 	apiBase          string // base URL for Calendar API; overridable in tests
 	tokenInfoURL     string
 	validationClient *http.Client
-
-	// Custody transport adapter (Phase 3). nil ⇒ direct-Google path unchanged.
-	custodyTx          EffectTransport
-	custodyCompanyRef  string
-	custodyInstanceRef string
 }
 
 // Option configures provider endpoints. Production uses Google's fixed

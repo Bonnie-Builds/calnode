@@ -19,10 +19,6 @@ const stateSep = "\x1f"
 // Redirects the browser to the chosen provider's OAuth consent page.
 // Optional ?provider=<name> selects a provider; defaults to the primary.
 func (h *Handler) ConnectCalendar(w http.ResponseWriter, r *http.Request) {
-	if h.bonnieManagedMode {
-		h.writeCodedError(w, http.StatusConflict, "managed_by_bonnie", "Calendar connection is managed by Bonnie")
-		return
-	}
 	if h.demoMode {
 		h.writeError(w, http.StatusServiceUnavailable, "not available in the demo")
 		return
@@ -173,12 +169,7 @@ func (h *Handler) ConnectCalDAV(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CalendarStatus(w http.ResponseWriter, r *http.Request) {
 	svc := h.getCal()
 	if svc == nil || !svc.Any() {
-		h.writeJSON(w, http.StatusOK, map[string]any{
-			"connected":         false,
-			"configured":        false,
-			"managed_by_bonnie": h.bonnieManagedMode,
-			"connections":       []any{},
-		})
+		h.writeJSON(w, http.StatusOK, map[string]any{"connected": false, "configured": false, "connections": []any{}})
 		return
 	}
 	user, _ := userFromContext(r.Context())
@@ -199,11 +190,10 @@ func (h *Handler) CalendarStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	resp := map[string]any{
-		"connected":         len(conns) > 0,
-		"configured":        true,
-		"managed_by_bonnie": h.bonnieManagedMode,
-		"providers":         svc.ProviderNames(),
-		"connections":       conns,
+		"connected":   len(conns) > 0,
+		"configured":  true,
+		"providers":   svc.ProviderNames(),
+		"connections": conns,
 	}
 	if destProvider != "" {
 		resp["provider"] = destProvider

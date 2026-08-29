@@ -208,15 +208,14 @@ func (h *Handler) reconcileCreations(ctx context.Context, gc *calendar.Service) 
 			}
 		}
 		eventID, link, err := gc.CreateEvent(ctx, m.userID, calendar.CreateEventParams{
-			Summary:            m.etName + " with " + m.orgName,
-			Description:        "Booking ID: " + m.bookingID,
-			Location:           m.bookingLoc,
-			Start:              start,
-			End:                end,
-			OrganizerName:      m.orgName,
-			OrganizerEmail:     m.orgEmail,
-			AddMeet:            autoGenMeet,
-			StableOperationKey: "bk:" + m.bookingID + ":" + m.userID,
+			Summary:        m.etName + " with " + m.orgName,
+			Description:    "Booking ID: " + m.bookingID,
+			Location:       m.bookingLoc,
+			Start:          start,
+			End:            end,
+			OrganizerName:  m.orgName,
+			OrganizerEmail: m.orgEmail,
+			AddMeet:        autoGenMeet,
 		})
 		if err != nil {
 			h.logger.Error("reconcile: create missing event", "error", err, "booking_id", m.bookingID, "host", m.userID)
