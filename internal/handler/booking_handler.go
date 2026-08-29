@@ -940,8 +940,8 @@ func (h *Handler) hostBookingData(ctx context.Context, base mailer.BookingData, 
 func (h *Handler) mintMeetingLink(ctx context.Context, b *booking.Booking, in bookingConfirmationInput, bData *mailer.BookingData, hosts []assignedHost) (meetURL string, autoGenMeet bool, livekitHostURL string) {
 	gc := h.getCal()
 	if gc != nil && onlineMeetingLocation(in.LocationType) {
-		if _, primaryProvider, perr := gc.Connected(ctx, primaryHost(hosts).UserID); perr == nil {
-			autoGenMeet = providerMintsPlatform(in.LocationType, primaryProvider)
+		if capable, perr := gc.CanAutoGenerate(ctx, primaryHost(hosts).UserID, in.LocationType); perr == nil {
+			autoGenMeet = capable
 		} else {
 			h.logger.Error("booking confirmation: primary host provider lookup", "error", perr, "booking_id", b.ID)
 		}

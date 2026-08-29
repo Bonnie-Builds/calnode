@@ -44,6 +44,19 @@ type managedBookingLocationRequest struct {
 	LocationValue    string `json:"location_value"`
 }
 
+type managedProviderObservationRequest struct {
+	ObservationRef string `json:"observation_ref"`
+}
+
+type managedProviderObservationResponse struct {
+	BookingID              string  `json:"booking_id"`
+	BookingStatus          string  `json:"booking_status"`
+	ProviderEventPresent   bool    `json:"provider_event_present"`
+	ProviderJoinURLPresent bool    `json:"provider_join_url_present"`
+	ProviderJoinURL        *string `json:"provider_join_url"`
+	ObservedAt             string  `json:"observed_at"`
+}
+
 // ManagedBookingUpsert is the Bonnie-only deterministic direct-scheduling
 // mutation. It is available only to a managed member API key, binds the stable
 // event type and any existing booking to that exact member, requires an
@@ -129,6 +142,84 @@ func (h *Handler) ManagedBookingUpsert(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	_, _ = w.Write(response)
+}
+
+// ManagedBookingProviderObservation reads the exact managed member's provider
+// event through the configured calendar adapter. It is read-only and returns
+// only the bounded convergence facts required by the Meetings worker.
+func (h *Handler) ManagedBookingProviderObservation(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.requireManagedBookingCaller(w, r)
+	if !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, managedBookingMaxBody)
+	rawBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid provider observation request")
+		return
+	}
+	var request managedProviderObservationRequest
+	if err := decodeStrictJSON(rawBody, &request); err != nil || !validManagedObservationRef(request.ObservationRef) {
+		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid provider observation request")
+		return
+	}
+
+	bookingID := strings.TrimSpace(r.PathValue("id"))
+	var hostID, status, externalEventID string
+	err = h.db.QueryRowContext(r.Context(), `
+		SELECT host_id, status, COALESCE(external_event_id, '')
+		FROM bookings WHERE id = ?`, bookingID).
+		Scan(&hostID, &status, &externalEventID)
+	if err != nil || hostID != user.ID {
+		h.writeCodedError(w, http.StatusNotFound, "booking_not_found", "booking not found")
+		return
+	}
+
+	response := managedProviderObservationResponse{
+		BookingID:     bookingID,
+		BookingStatus: status,
+		ObservedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if externalEventID != "" {
+		cal := h.getCal()
+		if cal == nil {
+			h.writeCodedError(w, http.StatusServiceUnavailable, "provider_unavailable", "provider observation unavailable")
+			return
+		}
+		observation, observeErr := cal.ObserveEvent(
+			r.Context(),
+			user.ID,
+			externalEventID,
+			strings.TrimSpace(request.ObservationRef),
+		)
+		if observeErr != nil {
+			h.logger.ErrorContext(r.Context(), "managed provider observation", "error", observeErr, "booking_id", bookingID)
+			h.writeCodedError(w, http.StatusServiceUnavailable, "provider_unavailable", "provider observation unavailable")
+			return
+		}
+		response.ProviderEventPresent = observation.Present
+		if observation.JoinURL != "" {
+			joinURL := observation.JoinURL
+			response.ProviderJoinURLPresent = true
+			response.ProviderJoinURL = &joinURL
+		}
+	}
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+func validManagedObservationRef(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '-' || r == '_' || r == ':' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (h *Handler) createManagedBooking(r *http.Request, et *bookableEventType, request managedBookingUpsertRequest, startAt, endAt time.Time, participants []booking.Attendee) (*booking.Booking, error) {

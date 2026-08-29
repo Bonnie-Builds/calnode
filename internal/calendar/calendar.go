@@ -7,6 +7,7 @@ package calendar
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sort"
 	"time"
 
@@ -36,6 +37,22 @@ type CreateEventParams struct {
 type EventAttendee struct {
 	Name  string
 	Email string
+}
+
+// ProviderEventObservation is an authoritative read-back of one event from the
+// destination provider. It intentionally exposes only the facts Calnode needs
+// to prove booking convergence; provider credentials and raw event data remain
+// behind the provider adapter.
+type ProviderEventObservation struct {
+	Present bool
+	JoinURL string
+}
+
+// ProviderEventObserver is implemented by destination providers that support
+// bounded authoritative event read-back. Managed booking flows require it
+// before they report provider convergence.
+type ProviderEventObserver interface {
+	ObserveEvent(ctx context.Context, userID, eventID, stableOperationKey string) (ProviderEventObservation, error)
 }
 
 // CalendarInfo is one calendar the provider exposes for a connected account.
@@ -367,4 +384,19 @@ func (s *Service) CancelEvent(ctx context.Context, userID, eventID string) error
 		return pr.CancelEvent(ctx, userID, eventID)
 	}
 	return nil
+}
+
+// ObserveEvent reads one event from the user's destination provider. The
+// stable operation key belongs to the caller's reconcile attempt and lets a
+// custody-backed provider preserve idempotent read authority.
+func (s *Service) ObserveEvent(ctx context.Context, userID, eventID, stableOperationKey string) (ProviderEventObservation, error) {
+	pr := s.providerForDestination(ctx, userID)
+	if pr == nil {
+		return ProviderEventObservation{}, nil
+	}
+	observer, ok := pr.(ProviderEventObserver)
+	if !ok {
+		return ProviderEventObservation{}, errors.New("calendar: destination provider does not support event observation")
+	}
+	return observer.ObserveEvent(ctx, userID, eventID, stableOperationKey)
 }

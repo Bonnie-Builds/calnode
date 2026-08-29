@@ -501,6 +501,7 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.HandleFunc("GET /v1/bookings/{id}/answers", h.RequireAuth(h.GetBookingAnswers))
 	if cfg.BonnieManagedMode {
 		mux.HandleFunc("POST /v1/bookings/managed-upsert", h.RequireAuth(h.ManagedBookingUpsert))
+		mux.HandleFunc("POST /v1/bookings/{id}/managed-provider-observation", h.RequireAuth(h.ManagedBookingProviderObservation))
 		mux.HandleFunc("POST /v1/bookings/{id}/managed-location", h.RequireAuth(h.ManagedBookingLocation))
 		mux.HandleFunc("POST /v1/bookings/{id}/managed-cancel", h.RequireAuth(h.ManagedBookingCancel))
 	}

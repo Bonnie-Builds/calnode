@@ -350,12 +350,14 @@ Calnode talks to calendars through a **provider abstraction**, not a single vend
   oauth2 `TokenSource` wrapped by a `savingTokenSource` that persists refreshed
   tokens (and preserves `account_kind`, which a refresh has no id_token to re-derive).
 
-**Bonnie-managed identity with Calnode-owned provider custody.** With
+**Bonnie-managed identity with Bonbon-owned provider custody.** With
 `BONNIE_MANAGED_MODE=true`, Bonnie supplies the company/member identity assertion
-that creates the Calnode session. The authenticated member then uses Calnode's
-normal calendar-connect route. Google consent, callback validation, encrypted
-`calendar_connections` storage, refresh, and calendar effects remain entirely
-inside Calnode; no Google credential handoff endpoint exists.
+that creates the Calnode member, while Bonbon authorization remains the sole
+owner of Google consent and credentials. Calnode stores only member and
+scheduling state. Its Google adapter sends bounded, idempotent calendar effects
+and provider observations through the configured custody transport; provider
+tokens never enter Calnode. A managed member's email is the logical destination,
+so readiness and write routing do not require a local `calendar_connections` row.
 
 **Per-provider notes.**
 - *Google* (`internal/gcal`): Meet via `conferenceData.createRequest` +
@@ -371,15 +373,19 @@ inside Calnode; no Google credential handoff endpoint exists.
 
 **Online-meeting links are provider-matched (`booking_handler.go`).** A
 `google_meet`/`teams` event type auto-mints a link **only when the primary host's
-connected provider natively matches the platform** — Meet↔Google, Teams↔work-Microsoft
-(`Service.CanAutoGenerate`; personal Microsoft can't mint Teams). When it can't, we
+destination provider natively matches the platform** — Meet↔Google, Teams↔work-Microsoft
+(`Service.CanAutoGenerate`; personal Microsoft can't mint Teams). A Bonbon-custodied
+logical destination participates in the same capability check. When it can't, we
 **never fabricate a link of the wrong kind** — the organizer's manually-entered
 `location_value` is used instead. The minted link is stored on
 `bookings.location_value`, surfaced in emails + the manage page, and passed as the
 location of secondary hosts' events. The reconciler's create path applies the same
 match rule; reschedule keeps the link (same event id), reassign carries the existing
 link to the new host. Created async, so the link lands in the email + booking record,
-not the instant 201.
+not the instant 201. Managed scheduling convergence uses
+`POST /v1/bookings/{id}/managed-provider-observation`: the exact member API key
+authorizes a bounded custody `event_get`, and the response exposes only event
+presence, booking status, join-URL presence/value, and observation time.
 
 **Save-time location validation (`event_type.go` + `validateLocation`).** A location
 type only saves with usable join info: Teams/Meet need an auto-capable connected

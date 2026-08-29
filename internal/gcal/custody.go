@@ -295,6 +295,29 @@ func (c *Client) custodyGetEvent(ctx context.Context, memberSub, stableOperation
 	return decodeCustodyEvent(outcome.Result)
 }
 
+// ObserveEvent performs a bounded, read-only provider observation through
+// Bonbon custody. Calnode receives only event presence and the provider join
+// URL; it never receives provider credentials or raw authority material.
+func (c *Client) ObserveEvent(ctx context.Context, userID, eventID, stableOperationKey string) (calendar.ProviderEventObservation, error) {
+	stableKey := strings.TrimSpace(stableOperationKey)
+	providerEventID := strings.TrimSpace(eventID)
+	if !c.custodyEnabled() || stableKey == "" || providerEventID == "" || !custody.ValidOpaqueRef(stableKey) {
+		return calendar.ProviderEventObservation{}, fmt.Errorf("gcal: managed event observation requires custody and valid identities")
+	}
+	memberSub, ok := c.destinationMemberSub(ctx, userID)
+	if !ok {
+		return calendar.ProviderEventObservation{}, nil
+	}
+	event, err := c.custodyGetEvent(ctx, memberSub, stableKey, providerEventID)
+	if err != nil {
+		if isNoConn(err) {
+			return calendar.ProviderEventObservation{}, nil
+		}
+		return calendar.ProviderEventObservation{}, err
+	}
+	return calendar.ProviderEventObservation{Present: true, JoinURL: event.meetLink()}, nil
+}
+
 // custodyCreateEvent performs the booking create/upsert: deterministic event
 // ID derived from Calnode's own stable operation identity so retries and
 // reconciler heals converge on one provider event.

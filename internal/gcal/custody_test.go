@@ -130,6 +130,33 @@ func TestCustodyCreateEvent_envelopeCarriesExactContractShape(t *testing.T) {
 	}
 }
 
+func TestCustodyObserveEventReturnsBoundedProviderFacts(t *testing.T) {
+	tx := &fakeCustodyTransport{outcomes: []custody.Outcome{
+		accepted(eventResultJSON("provider-event-1", "https://meet.google.com/abc-defg-hij")),
+	}}
+	c := newCustodyTestClient(t, tx)
+	seedDestinationConnection(t, c, "user-1", "member@example.com")
+
+	observation, err := c.ObserveEvent(
+		context.Background(),
+		"user-1",
+		"provider-event-1",
+		"reconcile_1_abcdef",
+	)
+	if err != nil {
+		t.Fatalf("ObserveEvent: %v", err)
+	}
+	if !observation.Present || observation.JoinURL != "https://meet.google.com/abc-defg-hij" {
+		t.Fatalf("observation = %+v; want present event with join URL", observation)
+	}
+	if len(tx.requests) != 1 || tx.requests[0].Operation != custody.OperationEventGet {
+		t.Fatalf("requests = %+v; want one event_get", tx.requests)
+	}
+	if tx.requests[0].MemberSub != "member@example.com" || tx.requests[0].StableOperationID != "reconcile_1_abcdef" {
+		t.Fatalf("request identity = %+v; want exact managed member and reconcile ref", tx.requests[0])
+	}
+}
+
 func TestCustodyManagedMemberIsDestinationWithoutLocalConnection(t *testing.T) {
 	c := newCustodyTestClient(t, &fakeCustodyTransport{})
 	seedDestinationConnection(t, c, "user-1", "member@workspace.example.com")

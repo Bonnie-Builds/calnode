@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calnode/calnode/internal/calendar"
+	"github.com/calnode/calnode/internal/custody"
+	"github.com/calnode/calnode/internal/gcal"
 	"github.com/calnode/calnode/internal/handler"
 )
 
@@ -28,6 +32,21 @@ type bookingHarness struct {
 	database *sql.DB
 	apiKey   string
 	userID   string
+}
+
+type providerObservationCustodyTransport struct{}
+
+func (providerObservationCustodyTransport) Execute(_ context.Context, request custody.Request) (custody.Outcome, error) {
+	if request.Operation != custody.OperationEventGet {
+		return custody.Outcome{Kind: custody.OutcomeUnavailable}, nil
+	}
+	return custody.Outcome{
+		Kind: custody.OutcomeAccepted,
+		Result: json.RawMessage(`{
+			"id":"provider-event-1",
+			"hangoutLink":"https://meet.google.com/abc-defg-hij"
+		}`),
+	}, nil
 }
 
 func TestManagedBookingUpsertCreateAndReplay(t *testing.T) {
@@ -96,6 +115,81 @@ func TestManagedBookingUpsertCreateAndReplay(t *testing.T) {
 	}
 	if organizerEmail != "host@example.com" || candidateEmail != "candidate@example.com" {
 		t.Fatalf("organizer=%q participant=%q", organizerEmail, candidateEmail)
+	}
+}
+
+func TestManagedBookingProviderObservationUsesCustodyRead(t *testing.T) {
+	harness, slug := managedBookingSetup(t)
+	createBody := fmt.Sprintf(`{
+		"event_type_slug":%q,
+		"booking_id":null,
+		"expected_revision":null,
+		"start_at":"2026-06-20T10:00:00Z",
+		"end_at":"2026-06-20T10:30:00Z",
+		"timezone":"UTC",
+		"correlation_ref":"bnc-provider-observation-abcdefghijklmnopqrstuvwxyz",
+		"organizer":{"name":"Host","email":"host@example.com"},
+		"participants":[{"name":"Candidate","email":"candidate@example.com"}]
+	}`, slug)
+	createReq := authReq(http.MethodPost, "/v1/bookings/managed-upsert", createBody, harness.apiKey)
+	createReq.Header.Set("Idempotency-Key", "meeting:provider-observation:scheduler:1")
+	createRec := httptest.NewRecorder()
+	harness.handler.RequireAuth(harness.handler.ManagedBookingUpsert)(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d; want 201 -- %s", createRec.Code, createRec.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil || created.ID == "" {
+		t.Fatalf("decode create: %v", err)
+	}
+	if _, err := harness.database.Exec(
+		`UPDATE bookings SET external_event_id = ? WHERE id = ?`,
+		"provider-event-1",
+		created.ID,
+	); err != nil {
+		t.Fatalf("seed provider event: %v", err)
+	}
+
+	gc, err := gcal.New(
+		harness.database,
+		"google-client-id",
+		"google-secret",
+		"http://localhost:3000/v1/calendar/callback",
+		testGCalKeyHex,
+		gcal.WithCustodyTransport(providerObservationCustodyTransport{}, "company-a", "instance-1"),
+	)
+	if err != nil {
+		t.Fatalf("gcal.New: %v", err)
+	}
+	svc := calendar.NewService(harness.database)
+	svc.Register(gc)
+	harness.handler.SetCalendar(svc)
+
+	req := authReq(
+		http.MethodPost,
+		"/v1/bookings/"+created.ID+"/managed-provider-observation",
+		`{"observation_ref":"reconcile_1_abcdef"}`,
+		harness.apiKey,
+	)
+	req.SetPathValue("id", created.ID)
+	rec := httptest.NewRecorder()
+	harness.handler.RequireAuth(harness.handler.ManagedBookingProviderObservation)(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("observation status = %d; want 200 -- %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		BookingID              string  `json:"booking_id"`
+		ProviderEventPresent   bool    `json:"provider_event_present"`
+		ProviderJoinURLPresent bool    `json:"provider_join_url_present"`
+		ProviderJoinURL        *string `json:"provider_join_url"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode observation: %v", err)
+	}
+	if response.BookingID != created.ID || !response.ProviderEventPresent || !response.ProviderJoinURLPresent || response.ProviderJoinURL == nil || *response.ProviderJoinURL != "https://meet.google.com/abc-defg-hij" {
+		t.Fatalf("observation = %+v; want bounded provider facts", response)
 	}
 }
 
