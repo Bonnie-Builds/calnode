@@ -85,7 +85,7 @@ func (rw *responseWriter) Flush() {
 // Host (the common default).
 func SameOriginCheck(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isStateChanging(r.Method) && !isManagedAssertionExchange(r) {
+		if isStateChanging(r.Method) {
 			if hasBrowserSessionCookie(r) {
 				if src := requestOriginHost(r); src != "" && !strings.EqualFold(src, r.Host) {
 					w.Header().Set("Content-Type", "application/json")
@@ -106,20 +106,6 @@ func hasBrowserSessionCookie(r *http.Request) bool {
 		}
 	}
 	return false
-}
-
-func isManagedAssertionExchange(r *http.Request) bool {
-	if r.Method != http.MethodPost {
-		return false
-	}
-	switch r.URL.Path {
-	case "/v1/auth/managed/exchange",
-		"/v1/auth/managed/exchange/calendar/embed",
-		"/v1/auth/managed/exchange/calendar/full":
-		return true
-	default:
-		return false
-	}
 }
 
 func isStateChanging(method string) bool {

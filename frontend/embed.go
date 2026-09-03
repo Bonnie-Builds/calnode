@@ -3,41 +3,14 @@
 package frontend
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"embed"
-	"encoding/base64"
 	"io"
 	"io/fs"
 	"net/http"
-	"regexp"
 )
 
 //go:embed all:build
 var buildFS embed.FS
-
-var inlineScriptPattern = regexp.MustCompile(`(?s)<script(?:\s[^>]*)?>(.*?)</script>`)
-
-// InlineScriptCSPHashes returns CSP hash sources for the generated SPA shell's
-// inline bootstrap scripts. The hashes are derived from the exact embedded bytes
-// served by Handler, so frontend rebuilds cannot silently stale the embed policy.
-func InlineScriptCSPHashes() []string {
-	document, err := buildFS.ReadFile("build/200.html")
-	if err != nil {
-		return nil
-	}
-	matches := inlineScriptPattern.FindAllSubmatch(document, -1)
-	hashes := make([]string, 0, len(matches))
-	for _, match := range matches {
-		openingEnd := bytes.IndexByte(match[0], '>')
-		if openingEnd < 0 || bytes.Contains(bytes.ToLower(match[0][:openingEnd]), []byte("src=")) {
-			continue
-		}
-		digest := sha256.Sum256(match[1])
-		hashes = append(hashes, "'sha256-"+base64.StdEncoding.EncodeToString(digest[:])+"'")
-	}
-	return hashes
-}
 
 // FaviconHandler serves the embedded favicon (build/favicon.svg) so the public
 // server-rendered pages and the admin SPA share a single favicon source — change

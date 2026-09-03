@@ -21,7 +21,6 @@
 	const SUPPORT_URL = 'https://bonniebuilds.com';
 
 	const isLogin = $derived($page.route.id === '/login');
-	const isEmbeddedCalendar = $derived($page.route.id === '/calendar/personal/embed');
 	const isPublicRoute = $derived(
 		$page.route.id === '/login' ||
 		$page.route.id === '/claim' ||
@@ -63,6 +62,7 @@
 			href: `${base}/calendar`,
 			label: 'Calendar',
 			adminOnly: false,
+			managedDeny: true,
 			icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><rect x="8" y="14" width="2" height="2"/><rect x="13" y="14" width="2" height="2"/></svg>`
 		},
 		{
@@ -128,8 +128,7 @@
 				(item.requiresFeature !== 'recordings' || recordingsConfigured)
 		)
 	);
-	const resolvedNavHref = (item: (typeof navItems)[number]) =>
-		item.label === 'Calendar' && $authStatus.managed ? `${base}/calendar/personal` : item.href;
+	const resolvedNavHref = (item: (typeof navItems)[number]) => item.href;
 
 	onMount(async () => {
 		if (isPublicRoute) {
@@ -183,10 +182,6 @@
 	<div class="flex h-full items-center justify-center text-sm text-muted-foreground">
 		Loading…
 	</div>
-{:else if isEmbeddedCalendar}
-	<main class="h-full overflow-auto bg-background p-4">
-		{@render children()}
-	</main>
 {:else}
 	<div class="flex h-full flex-col">
 	{#if $authStatus.demo_mode}

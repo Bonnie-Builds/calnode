@@ -36,9 +36,7 @@ type ManagedIdentityConfig struct {
 	SessionTTL            time.Duration
 	PublicBaseURL         string
 	SiteDomain            string
-	FrameAncestors        []string
 	BookingFrameAncestors []string
-	ScriptSources         []string
 }
 
 type managedIdentityConfig struct {
@@ -53,9 +51,7 @@ type managedIdentityConfig struct {
 	sessionTTL            time.Duration
 	publicBaseURL         string
 	siteDomain            string
-	frameAncestors        []string
 	bookingFrameAncestors []string
-	scriptSources         []string
 }
 
 // managedClaimValues is the validated content of a ManagedCalnodeSessionAssertionV1.
@@ -331,48 +327,6 @@ func (h *Handler) consumeJTI(ctx context.Context, jti string) (bool, error) {
 	return n == 1, nil
 }
 
-// upsertManagedMember resolves/creates the managed member projection. The user
-// is keyed by managed_subject + company_ref; email/name are refreshed. Returns
-// the user ID, or an error on identity collision or DB failure.
-func (h *Handler) upsertManagedMember(ctx context.Context, v *managedClaimValues) (string, error) {
-	var existingID string
-	err := h.db.QueryRowContext(ctx,
-		`SELECT id FROM users WHERE managed_subject = ? AND company_ref = ?`,
-		v.Sub, v.CompanyRef).Scan(&existingID)
-	if err == nil {
-		if _, err := h.db.ExecContext(ctx,
-			`UPDATE users SET email = ?, name = ?, iana_timezone = COALESCE(?, iana_timezone),
-			   is_admin = 0, is_owner = 0, email_login = 0, archived_at = NULL, is_managed_member = 1
-			 WHERE id = ?`,
-			v.Email, v.Name, nullIfEmpty(v.IANATZ), existingID); err != nil {
-			return "", err
-		}
-		return existingID, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return "", err
-	}
-
-	// New member. Check for identity collision: an existing user with the same
-	// email or the same subject mapped under a different company.
-	var collisionID string
-	_ = h.db.QueryRowContext(ctx,
-		`SELECT id FROM users WHERE email = ? OR managed_subject = ? LIMIT 1`,
-		v.Email, v.Sub).Scan(&collisionID)
-	if collisionID != "" {
-		return "", errIdentityCollision
-	}
-
-	userID := uid.New()
-	if _, err := h.db.ExecContext(ctx,
-		`INSERT INTO users (id, email, name, iana_timezone, is_admin, is_owner, email_login, company_ref, managed_subject, is_managed_member)
-		 VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?, 1)`,
-		userID, v.Email, v.Name, defaultTZ(v.IANATZ), v.CompanyRef, v.Sub); err != nil {
-		return "", err
-	}
-	return userID, nil
-}
-
 // getManagedMemberBySub returns the managed member's ID for the configured company.
 func (h *Handler) getManagedMemberBySub(ctx context.Context, sub string) (string, bool) {
 	h.managedMu.RLock()
@@ -405,133 +359,6 @@ func (h *Handler) getActiveManagedMemberBySub(ctx context.Context, sub string) (
 		return "", false
 	}
 	return id, true
-}
-
-// ManagedExchange handles POST /v1/auth/managed/exchange. It validates the
-// assertion, consumes its jti once, upserts the forced member, and creates a
-// native session bounded to the managed session TTL (<=1h).
-func (h *Handler) ManagedExchange(w http.ResponseWriter, r *http.Request) {
-	h.managedExchange(w, r, "")
-}
-
-// ManagedCalendarEmbedExchange consumes a managed assertion and redirects only
-// to the fixed personal-calendar embed route. The request has no redirect/path
-// field, so callers cannot turn the exchange into an open redirect.
-func (h *Handler) ManagedCalendarEmbedExchange(w http.ResponseWriter, r *http.Request) {
-	h.managedExchange(w, r, "/admin/calendar/personal/embed")
-}
-
-// ManagedCalendarFullExchange consumes a fresh managed assertion and redirects
-// only to the full personal-calendar route.
-func (h *Handler) ManagedCalendarFullExchange(w http.ResponseWriter, r *http.Request) {
-	h.managedExchange(w, r, "/admin/calendar/personal")
-}
-
-func (h *Handler) managedExchange(w http.ResponseWriter, r *http.Request, fixedEntryPath string) {
-	if !h.bonnieManagedMode {
-		h.writeCodedError(w, http.StatusNotFound, "not_found", "not found")
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, managedAssertionMaxBody)
-	assertion, err := decodeManagedAssertionRequest(r)
-	if err != nil {
-		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "invalid exchange request")
-		return
-	}
-	if assertion == "" {
-		h.writeCodedError(w, http.StatusBadRequest, "invalid_request", "assertion required")
-		return
-	}
-
-	ctx := r.Context()
-	claims, err := h.verifyManagedAssertion(ctx, assertion)
-	if err != nil {
-		h.logger.WarnContext(ctx, "managed exchange rejected", "reason", err.Error())
-		h.writeCodedError(w, http.StatusUnauthorized, "managed_assertion_rejected", "assertion rejected")
-		return
-	}
-
-	consumed, err := h.consumeJTI(ctx, claims.JTI)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "managed exchange: jti consume failed", "error", err)
-		h.writeCodedError(w, http.StatusServiceUnavailable, "exchange_unavailable", "exchange unavailable")
-		return
-	}
-	if !consumed {
-		h.logger.WarnContext(ctx, "managed exchange rejected", "reason", "replayed jti")
-		h.writeCodedError(w, http.StatusUnauthorized, "managed_assertion_rejected", "assertion rejected")
-		return
-	}
-
-	userID, err := h.upsertManagedMember(ctx, claims)
-	if err != nil {
-		h.logger.WarnContext(ctx, "managed exchange member failed", "error", err)
-		if errors.Is(err, errIdentityCollision) {
-			h.writeCodedError(w, http.StatusConflict, "identity_collision", "identity collision")
-			return
-		}
-		h.writeCodedError(w, http.StatusServiceUnavailable, "exchange_unavailable", "exchange unavailable")
-		return
-	}
-
-	if err := h.createManagedSession(ctx, w, userID); err != nil {
-		h.logger.ErrorContext(ctx, "managed exchange: session failed", "error", err)
-		h.writeCodedError(w, http.StatusServiceUnavailable, "exchange_unavailable", "exchange unavailable")
-		return
-	}
-
-	entryPath := fixedEntryPath
-	if entryPath == "" {
-		h.managedMu.RLock()
-		entryPath = h.managedIdentity.entryPath
-		h.managedMu.RUnlock()
-	}
-	if entryPath == "" || !isManagedEntryPathSafe(entryPath) {
-		entryPath = "/"
-	}
-	http.Redirect(w, r, entryPath, http.StatusSeeOther)
-}
-
-func decodeManagedAssertionRequest(r *http.Request) (string, error) {
-	contentType := strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0])
-	if contentType == "application/x-www-form-urlencoded" {
-		if err := r.ParseForm(); err != nil {
-			return "", err
-		}
-		values, found := r.PostForm["assertion"]
-		if !found || len(values) != 1 || len(r.PostForm) != 1 {
-			return "", errors.New("invalid form exchange request")
-		}
-		return values[0], nil
-	}
-	if contentType != "" && contentType != "application/json" {
-		return "", errors.New("unsupported exchange content type")
-	}
-
-	var req struct {
-		Assertion string `json:"assertion"`
-	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		return "", err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return "", errors.New("invalid trailing exchange content")
-	}
-	return req.Assertion, nil
-}
-
-// createManagedSession creates a session bounded to the managed session TTL
-// (default 1h, never longer) and sets the native cookie.
-func (h *Handler) createManagedSession(ctx context.Context, w http.ResponseWriter, userID string) error {
-	h.managedMu.RLock()
-	ttl := h.managedIdentity.sessionTTL
-	h.managedMu.RUnlock()
-	if ttl <= 0 || ttl > time.Hour {
-		ttl = time.Hour
-	}
-	return h.createSessionTTL(ctx, w, userID, ttl, true)
 }
 
 // ensureManagedMember is the operator-key path: idempotently upserts the member

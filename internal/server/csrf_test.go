@@ -49,7 +49,7 @@ func TestSameOrigin_blocksCrossOriginLocalManagedCookieWrite(t *testing.T) {
 	}
 }
 
-func TestSameOrigin_allowsManagedAssertionExchangeWithExistingCookie(t *testing.T) {
+func TestSameOrigin_blocksLegacyManagedExchangePaths(t *testing.T) {
 	paths := []string{
 		"/v1/auth/managed/exchange",
 		"/v1/auth/managed/exchange/calendar/embed",
@@ -61,8 +61,8 @@ func TestSameOrigin_allowsManagedAssertionExchangeWithExistingCookie(t *testing.
 		r.Header.Set("Origin", "https://app.example.com")
 		r.AddCookie(&http.Cookie{Name: "calnode_session", Value: "stale-or-active-session"})
 		code, called := runSameOrigin(r)
-		if code != http.StatusOK || !called {
-			t.Fatalf("managed assertion exchange %q should reach its one-time assertion verifier: status=%d called=%v", path, code, called)
+		if code != http.StatusForbidden || called {
+			t.Fatalf("removed managed assertion exchange %q must have no CSRF exemption: status=%d called=%v", path, code, called)
 		}
 	}
 }

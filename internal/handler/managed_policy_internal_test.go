@@ -51,22 +51,6 @@ func TestExactHTTPLoopbackOriginRejectsRemoteAndDecoratedURLs(t *testing.T) {
 	}
 }
 
-func TestManagedCalendarEmbedCSPFailsClosedWithoutQualifiedOrigins(t *testing.T) {
-	h := &Handler{}
-	if got := h.managedCalendarEmbedCSP(); !strings.Contains(got, "frame-ancestors 'none'") {
-		t.Fatalf("CSP = %q; want frame-ancestors 'none'", got)
-	}
-	h.managedIdentity.frameAncestors = []string{"https://app.example.com"}
-	h.managedIdentity.scriptSources = []string{"'sha256-test-bootstrap-hash='"}
-	got := h.managedCalendarEmbedCSP()
-	if !strings.Contains(got, "frame-ancestors https://app.example.com") || strings.Contains(got, "*") {
-		t.Fatalf("CSP = %q; want exact ancestor without wildcard", got)
-	}
-	if !strings.Contains(got, "script-src 'self' 'sha256-test-bootstrap-hash='") || strings.Contains(got, "script-src 'self' 'unsafe-inline'") {
-		t.Fatalf("CSP = %q; want generated bootstrap hash without unsafe-inline script authority", got)
-	}
-}
-
 func TestManagedBookingPagePolicyFailsClosedAndAllowsOnlyNormalizedOrigins(t *testing.T) {
 	h := &Handler{}
 	csp, frameAllowed := h.managedBookingPagePolicy(trackingSettings{})

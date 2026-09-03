@@ -93,9 +93,6 @@ type Config struct {
 	// BonnieManagedSiteDomain is the deployment-owned registrable site suffix
 	// shared by Bonnie and this Calnode instance (for example, example.com).
 	BonnieManagedSiteDomain string
-	// BonnieManagedFrameAncestors is the exact comma-separated Bonnie app origin
-	// allowlist for the managed personal-calendar iframe. Empty keeps embed dark.
-	BonnieManagedFrameAncestors []string
 	// BonnieManagedBookingFrameAncestors is the exact comma-separated Bonnie app
 	// origin allowlist for public booking pages. Empty keeps booking-page framing
 	// disabled and preserves the default DENY policy.
@@ -185,7 +182,6 @@ func Load() *Config {
 	cfg.BonnieManagedLoginRedirect = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_LOGIN_REDIRECT"))
 	cfg.BonnieManagedSessionTTL = getDuration("BONNIE_MANAGED_SESSION_TTL", time.Hour)
 	cfg.BonnieManagedSiteDomain = strings.ToLower(strings.TrimSpace(os.Getenv("BONNIE_MANAGED_SITE_DOMAIN")))
-	cfg.BonnieManagedFrameAncestors = splitCSV(os.Getenv("BONNIE_MANAGED_FRAME_ANCESTORS"))
 	cfg.BonnieManagedBookingFrameAncestors = splitCSV(os.Getenv("BONNIE_MANAGED_BOOKING_FRAME_ANCESTORS"))
 	cfg.CustodyTransportURL = strings.TrimSpace(os.Getenv("BONNIE_CUSTODY_TRANSPORT_URL"))
 	cfg.CustodyCompanyRef = strings.TrimSpace(os.Getenv("BONNIE_CUSTODY_COMPANY_REF"))

@@ -49,9 +49,6 @@ func (h *Handler) ManagedSPAGuard(next http.Handler) http.Handler {
 				h.writeCodedError(w, http.StatusServiceUnavailable, "managed_login_unavailable", "managed login unavailable")
 				return
 			}
-			if r.URL.Path == "/calendar/personal/embed" {
-				w.Header().Set("Content-Security-Policy", h.managedCalendarEmbedCSP())
-			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -101,22 +98,6 @@ func isExactHTTPLoopbackOrigin(raw string) bool {
 		return false
 	}
 	return isLoopbackHostname(parsed.Hostname())
-}
-
-func (h *Handler) managedCalendarEmbedCSP() string {
-	h.managedMu.RLock()
-	ancestors := append([]string(nil), h.managedIdentity.frameAncestors...)
-	scriptSources := append([]string(nil), h.managedIdentity.scriptSources...)
-	h.managedMu.RUnlock()
-	frameAncestors := "'none'"
-	if len(ancestors) > 0 {
-		frameAncestors = strings.Join(ancestors, " ")
-	}
-	scriptSource := "'self'"
-	if len(scriptSources) > 0 {
-		scriptSource += " " + strings.Join(scriptSources, " ")
-	}
-	return "default-src 'self'; script-src " + scriptSource + "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors " + frameAncestors + "; base-uri 'none'; form-action 'self'"
 }
 
 // managedBookingPagePolicy returns the public booking-page CSP and whether an

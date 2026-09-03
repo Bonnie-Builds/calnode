@@ -57,9 +57,7 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 		SessionTTL:            cfg.BonnieManagedSessionTTL,
 		PublicBaseURL:         cfg.PublicBaseURL,
 		SiteDomain:            cfg.BonnieManagedSiteDomain,
-		FrameAncestors:        cfg.BonnieManagedFrameAncestors,
 		BookingFrameAncestors: cfg.BonnieManagedBookingFrameAncestors,
-		ScriptSources:         frontend.InlineScriptCSPHashes(),
 	})
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
 
@@ -325,14 +323,8 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.HandleFunc("GET /v1/auth/microsoft/callback", authRL(h.CallbackMicrosoft))
 	mux.HandleFunc("POST /v1/auth/logout", h.Logout)
 
-	// Bonnie-managed identity exchange (public, rate-limited like login). In
-	// managed mode this is the ONLY tenant browser-entry surface.
+	// Bonnie-managed lifecycle and calendar APIs are non-browser boundaries.
 	if cfg.BonnieManagedMode {
-		managedExchangeRL := RateLimit(10, time.Minute)
-		mux.HandleFunc("POST /v1/auth/managed/exchange", managedExchangeRL(h.ManagedExchange))
-		mux.HandleFunc("POST /v1/auth/managed/exchange/calendar/embed", managedExchangeRL(h.ManagedCalendarEmbedExchange))
-		mux.HandleFunc("POST /v1/auth/managed/exchange/calendar/full", managedExchangeRL(h.ManagedCalendarFullExchange))
-
 		// Operator-key-only managed member lifecycle. These authenticate via
 		// X-Operator-Key, never a browser session or member API key.
 		mux.HandleFunc("POST /v1/managed/members", h.RequireManagedOperator(h.ManagedEnsureMember))

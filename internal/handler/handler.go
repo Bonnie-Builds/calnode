@@ -228,9 +228,7 @@ func (h *Handler) SetManagedIdentityConfig(cfg ManagedIdentityConfig) {
 		sessionTTL:            cfg.SessionTTL,
 		publicBaseURL:         cfg.PublicBaseURL,
 		siteDomain:            strings.ToLower(strings.TrimPrefix(strings.TrimSpace(cfg.SiteDomain), ".")),
-		frameAncestors:        normalizeManagedFrameAncestors(cfg.FrameAncestors, cfg.SiteDomain),
 		bookingFrameAncestors: normalizeManagedFrameAncestors(cfg.BookingFrameAncestors, cfg.SiteDomain),
-		scriptSources:         append([]string(nil), cfg.ScriptSources...),
 	}
 	h.managedJWKS = parseJWKS(cfg.JWKS)
 }
