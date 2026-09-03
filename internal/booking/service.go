@@ -375,6 +375,90 @@ func (s *Service) ListByHost(ctx context.Context, hostID string) ([]Booking, err
 	return out, rows.Err()
 }
 
+// CalendarBooking is the privacy-minimal booking row used by the bounded
+// managed-member calendar range API. It deliberately excludes attendees,
+// locations, payment data, provider event identifiers, and answers.
+type CalendarBooking struct {
+	ID             string
+	Title          string
+	StartAt        time.Time
+	EndAt          time.Time
+	Timezone       string
+	CorrelationRef string
+}
+
+// ListCalendarByHostRange returns at most maxRows+1 non-cancelled bookings the
+// exact host attends and that overlap [from, to). The extra row lets the caller
+// fail closed on excessive range density without performing an unbounded read.
+func (s *Service) ListCalendarByHostRange(
+	ctx context.Context,
+	hostID string,
+	from time.Time,
+	to time.Time,
+	maxRows int,
+) ([]CalendarBooking, error) {
+	if hostID == "" || !to.After(from) || maxRows <= 0 {
+		return nil, fmt.Errorf("booking: invalid calendar range")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT b.id, et.name, b.start_at, b.end_at,
+		       COALESCE((
+		         SELECT ba.iana_timezone
+		         FROM booking_attendees ba
+		         WHERE ba.booking_id = b.id AND ba.is_organizer = 1
+		         LIMIT 1
+		       ), 'UTC'),
+		       COALESCE(b.correlation_ref, '')
+		FROM bookings b
+		JOIN event_types et ON et.id = b.event_type_id
+		WHERE b.status != 'cancelled'
+		  AND b.start_at < ? AND b.end_at > ?
+		  AND (b.host_id = ? OR EXISTS (
+		        SELECT 1 FROM booking_hosts bh
+		        WHERE bh.booking_id = b.id AND bh.user_id = ?))
+		ORDER BY b.start_at, b.id
+		LIMIT ?`,
+		to.UTC().Format(time.RFC3339Nano),
+		from.UTC().Format(time.RFC3339Nano),
+		hostID,
+		hostID,
+		maxRows+1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("booking: calendar range: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]CalendarBooking, 0, maxRows+1)
+	for rows.Next() {
+		var item CalendarBooking
+		var startAt, endAt string
+		if err := rows.Scan(
+			&item.ID,
+			&item.Title,
+			&startAt,
+			&endAt,
+			&item.Timezone,
+			&item.CorrelationRef,
+		); err != nil {
+			return nil, fmt.Errorf("booking: scan calendar range: %w", err)
+		}
+		item.StartAt, err = time.Parse(time.RFC3339Nano, startAt)
+		if err != nil {
+			return nil, fmt.Errorf("booking: parse calendar start: %w", err)
+		}
+		item.EndAt, err = time.Parse(time.RFC3339Nano, endAt)
+		if err != nil {
+			return nil, fmt.Errorf("booking: parse calendar end: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("booking: calendar range rows: %w", err)
+	}
+	return out, nil
+}
+
 // ListAll returns every non-cancelled booking in the workspace, ordered by start
 // time (matching ListByHost). For the admin/owner "All bookings" view — callers
 // must gate this on the admin role.

@@ -495,6 +495,9 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.HandleFunc("OPTIONS /v1/bookings", cors(func(http.ResponseWriter, *http.Request) {}))
 	mux.HandleFunc("GET /v1/bookings/{id}", h.RequireAuth(h.GetBooking))
 	mux.HandleFunc("GET /v1/bookings", h.RequireAuth(h.ListBookings))
+	if cfg.BonnieManagedMode {
+		mux.HandleFunc("POST /v1/calendar/managed-range", h.ManagedCalendarRange)
+	}
 	mux.HandleFunc("POST /v1/bookings/{id}/cancel", h.RequireAuth(h.CancelBooking))
 	mux.HandleFunc("PATCH /v1/bookings/{id}/reschedule", h.RequireAuth(h.RescheduleBooking))
 	mux.HandleFunc("POST /v1/bookings/{id}/reassign", h.RequireAuth(h.ReassignBooking))

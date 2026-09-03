@@ -388,6 +388,25 @@ func (h *Handler) getManagedMemberBySub(ctx context.Context, sub string) (string
 	return id, true
 }
 
+// getActiveManagedMemberBySub is the read-only identity boundary for managed
+// calendar data. Unlike archive/reactivation lifecycle operations, calendar
+// reads must reject archived or non-managed rows.
+func (h *Handler) getActiveManagedMemberBySub(ctx context.Context, sub string) (string, bool) {
+	h.managedMu.RLock()
+	companyRef := h.managedIdentity.companyRef
+	h.managedMu.RUnlock()
+	var id string
+	err := h.db.QueryRowContext(ctx,
+		`SELECT id FROM users
+		 WHERE managed_subject = ? AND company_ref = ?
+		   AND is_managed_member = 1 AND archived_at IS NULL`,
+		sub, companyRef).Scan(&id)
+	if err != nil {
+		return "", false
+	}
+	return id, true
+}
+
 // ManagedExchange handles POST /v1/auth/managed/exchange. It validates the
 // assertion, consumes its jti once, upserts the forced member, and creates a
 // native session bounded to the managed session TTL (<=1h).
