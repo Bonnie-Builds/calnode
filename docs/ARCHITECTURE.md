@@ -106,6 +106,16 @@ partial unique index covers) — no TOCTOU between concurrent bookings.
   (the host-roles table), `event_type_questions` (intake form),
   `event_type_reminders` (per-ET `hours_before`, UNIQUE).
 - **Availability:** `availability_rules` (weekly), `availability_overrides` (dated).
+  Bonnie's exact-member `POST /v1/calendar/managed-availability` uses the same
+  short-lived, one-time managed assertion as the calendar workspace read. It
+  returns only the member's global weekly rules, IANA timezone and a content
+  revision. An optional update atomically replaces those global rules and the
+  timezone after checking the observed revision; stale edits return 409. The
+  request never accepts a user, company, event-type or credential selector.
+  Date overrides and event-specific rules remain intact. At most 28 weekly
+  blocks are accepted, with valid HH:MM ranges and no overlap. Empty rules stay
+  empty: no default working hours are provisioned. Candidate slot generation
+  and booking validation continue reading the existing authoritative tables.
 - **Bookings:** `bookings` (primary `host_id`, `external_event_id`, status),
   `booking_hosts` (every attending host + `is_primary` + per-host
   `external_event_id`), `booking_attendees` (organizer + invitees),
