@@ -140,7 +140,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 // full TTL, since changing the password hash alone doesn't touch the sessions table.
 func (h *Handler) revokeOtherSessions(r *http.Request, userID string) {
 	var currentSessionID string
-	if c, err := r.Cookie(sessionCookieName); err == nil {
+	if c, err := h.browserSessionCookie(r); err == nil {
 		currentSessionID = c.Value
 	}
 	if _, err := h.db.ExecContext(r.Context(),

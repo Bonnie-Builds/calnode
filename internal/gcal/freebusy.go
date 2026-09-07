@@ -32,6 +32,9 @@ type freeBusyResp struct {
 // connection. Fail-open: a single account that errors is logged and skipped, so a flaky
 // connection never blocks availability or a booking.
 func (c *Client) FreeBusy(ctx context.Context, userID string, from, to time.Time) ([]slots.Interval, error) {
+	if c.custodyEnabled() {
+		return c.custodyFreeBusy(ctx, userID, from, to)
+	}
 	conns, err := c.freeBusyConnections(ctx, userID)
 	if err != nil {
 		return nil, err

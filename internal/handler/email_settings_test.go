@@ -1,9 +1,11 @@
 package handler_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +13,12 @@ import (
 
 	"github.com/calnode/calnode/internal/mailer"
 )
+
+type rejectedEmailMailer struct{}
+
+func (m *rejectedEmailMailer) Send(_ context.Context, _ mailer.Message) error {
+	return errors.New("provider rejected message")
+}
 
 // sha256HexForTest mirrors the hashing in auth.go so tests can mint valid API keys.
 func sha256HexForTest(s string) string {
@@ -226,12 +234,23 @@ func TestPatchEmailSettings_nonAdminForbidden(t *testing.T) {
 	}
 }
 
+func TestPatchEmailSettings_environmentManaged(t *testing.T) {
+	h, _, key, _ := setupWorkspaceWithDB(t)
+	h.SetEmailEnvironmentManaged(true)
+	req := authReq(http.MethodPatch, "/v1/settings/email", `{"smtp_host":"smtp.other.example"}`, key)
+	rec := httptest.NewRecorder()
+	h.RequireAuth(h.PatchEmailSettings)(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("got %d; want 409", rec.Code)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // POST /v1/settings/email/test
 // ---------------------------------------------------------------------------
 
 func TestTestEmailConnection_sends(t *testing.T) {
-	h, _, key, _ := setupWorkspaceWithDB(t)
+	h, db, key, _ := setupWorkspaceWithDB(t)
 
 	// Wire a live mailer with a stub inner so Send() is captured.
 	stub := &stubMailer{}
@@ -255,6 +274,35 @@ func TestTestEmailConnection_sends(t *testing.T) {
 	}
 	if !strings.HasPrefix(stub.lastMsg.Subject, "[TEST] ") {
 		t.Errorf("subject %q; want [TEST] prefix", stub.lastMsg.Subject)
+	}
+	var verifiedAt string
+	if err := db.QueryRow(`SELECT email_verified_at FROM server_settings WHERE id = 1`).Scan(&verifiedAt); err != nil {
+		t.Fatalf("load verification state: %v", err)
+	}
+	if verifiedAt == "" {
+		t.Fatal("successful live test did not persist verification state")
+	}
+}
+
+func TestTestEmailConnection_providerFailureIsSafeAndUnverified(t *testing.T) {
+	h, db, key, _ := setupWorkspaceWithDB(t)
+	h.SetMailer(mailer.NewLive(&rejectedEmailMailer{}), "http://localhost")
+	req := authReq(http.MethodPost, "/v1/settings/email/test", "", key)
+	rec := httptest.NewRecorder()
+	h.RequireAuth(h.TestEmailConnection)(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("got %d; want 502", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "provider rejected message") {
+		t.Fatal("raw provider error leaked to the API response")
+	}
+	var verifiedAt, lastError string
+	if err := db.QueryRow(`SELECT email_verified_at, email_last_error FROM server_settings WHERE id = 1`).
+		Scan(&verifiedAt, &lastError); err != nil {
+		t.Fatalf("load verification state: %v", err)
+	}
+	if verifiedAt != "" || lastError == "" {
+		t.Fatalf("verified_at=%q last_error=%q; want unverified with safe failure", verifiedAt, lastError)
 	}
 }
 

@@ -116,7 +116,7 @@ func (h *Handler) AuthorizeMCP(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, dest, http.StatusFound)
 			return
 		}
-		http.Error(w, "Please sign in to the Calnode admin in this browser, then start the connection again.", http.StatusUnauthorized)
+		http.Error(w, "Please sign in to the Bonnie admin in this browser, then start the connection again.", http.StatusUnauthorized)
 		return
 	}
 
@@ -400,7 +400,7 @@ func (h *Handler) redirectAuthError(w http.ResponseWriter, r *http.Request, ar a
 // sessionUser resolves the current admin session cookie to a user (id, email). It
 // mirrors RequireAuth's session branch but is usable outside that middleware.
 func (h *Handler) sessionUser(r *http.Request) (userID, email string, ok bool) {
-	c, err := r.Cookie(sessionCookieName)
+	c, err := h.browserSessionCookie(r)
 	if err != nil || c.Value == "" {
 		return "", "", false
 	}

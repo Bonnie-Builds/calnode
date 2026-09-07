@@ -86,6 +86,12 @@ func (c *Client) CreateEvent(ctx context.Context, userID string, p calendar.Crea
 		a.EmailAddress.Name = p.OrganizerName
 		reqBody.Attendees = append(reqBody.Attendees, a)
 	}
+	for _, attendee := range p.Attendees {
+		a := graphAttendee{Type: "required"}
+		a.EmailAddress.Address = attendee.Email
+		a.EmailAddress.Name = attendee.Name
+		reqBody.Attendees = append(reqBody.Attendees, a)
+	}
 	if p.AddMeet {
 		reqBody.IsOnlineMeeting = true
 		reqBody.OnlineMeetingProvider = "teamsForBusiness"
@@ -156,6 +162,38 @@ func (c *Client) UpdateEvent(ctx context.Context, userID, eventID string, start,
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("microsoft: update event status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// UpdateEventLocation patches only the event location.
+func (c *Client) UpdateEventLocation(ctx context.Context, userID, eventID, location string) error {
+	if eventID == "" {
+		return nil
+	}
+	hc, err := c.httpClient(ctx, userID, -1, 1)
+	if err != nil || hc == nil {
+		return err
+	}
+	body, err := json.Marshal(struct {
+		Location graphLocation `json:"location"`
+	}{Location: graphLocation{DisplayName: location}})
+	if err != nil {
+		return fmt.Errorf("microsoft: update event location marshal: %w", err)
+	}
+	apiURL := c.apiBase + "/me/events/" + url.PathEscape(eventID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, apiURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("microsoft: update event location request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("microsoft: update event location call: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("microsoft: update event location status %d", resp.StatusCode)
 	}
 	return nil
 }

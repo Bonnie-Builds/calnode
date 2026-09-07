@@ -40,12 +40,12 @@ func TestConsentChromeSharedAcrossSurfaces(t *testing.T) {
 		t.Run(s.name+"/tracking_on", func(t *testing.T) {
 			out := s.render(t, "GTM-TEST123", "https://example.com/privacy", "https://example.com/terms")
 			for _, want := range []string{
-				`id="cookie-banner"`,           // consent banner present
-				"__CALNODE_TRACK",              // tracking loader present
-				"GTM-TEST123",                  // the configured id is wired in
-				"window.__calnodeLoadTracking", // gated loader (not auto-injected)
-				"Cookie settings",              // footer reopen control
-				"https://example.com/privacy",  // legal links
+				`id="cookie-banner"`,          // consent banner present
+				"__BONNIE_TRACK",              // tracking loader present
+				"GTM-TEST123",                 // the configured id is wired in
+				"window.__bonnieLoadTracking", // gated loader (not auto-injected)
+				"Cookie settings",             // footer reopen control
+				"https://example.com/privacy", // legal links
 				"https://example.com/terms",
 			} {
 				if !strings.Contains(out, want) {
@@ -64,7 +64,7 @@ func TestConsentChromeSharedAcrossSurfaces(t *testing.T) {
 			out := s.render(t, "", "", "")
 			for _, notWant := range []string{
 				`id="cookie-banner"`,
-				"__CALNODE_TRACK",
+				"__BONNIE_TRACK",
 				"Cookie settings",
 			} {
 				if strings.Contains(out, notWant) {

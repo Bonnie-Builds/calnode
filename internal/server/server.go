@@ -12,6 +12,7 @@ import (
 	"github.com/calnode/calnode/internal/calendar"
 	"github.com/calnode/calnode/internal/calendar/microsoft"
 	"github.com/calnode/calnode/internal/config"
+	"github.com/calnode/calnode/internal/custody"
 	"github.com/calnode/calnode/internal/demo"
 	"github.com/calnode/calnode/internal/gcal"
 	"github.com/calnode/calnode/internal/handler"
@@ -43,6 +44,21 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	h.SetDataDir("data")
 	h.SetEncKey(cfg.EncryptionKey)
 	h.SetDemoMode(cfg.DemoMode)
+	h.SetBonnieManagedMode(cfg.BonnieManagedMode)
+	h.SetManagedIdentityConfig(handler.ManagedIdentityConfig{
+		Issuer:                cfg.BonnieManagedIssuer,
+		CompanyRef:            cfg.BonnieManagedCompany,
+		JWKSURL:               cfg.BonnieManagedJWKSURL,
+		JWKS:                  cfg.BonnieManagedJWKS,
+		AllowedKids:           cfg.BonnieManagedAllowedKids,
+		OperatorKey:           cfg.BonnieManagedOperatorKey,
+		EntryPath:             cfg.BonnieManagedEntryPath,
+		LoginRedirect:         cfg.BonnieManagedLoginRedirect,
+		SessionTTL:            cfg.BonnieManagedSessionTTL,
+		PublicBaseURL:         cfg.PublicBaseURL,
+		SiteDomain:            cfg.BonnieManagedSiteDomain,
+		BookingFrameAncestors: cfg.BonnieManagedBookingFrameAncestors,
+	})
 	h.SetDemoResetInterval(cfg.DemoResetInterval)
 
 	if cfg.DemoMode {
@@ -79,13 +95,23 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	// reference, so changing SMTP settings in the UI takes effect immediately.
 	live := mailer.NewLive(&mailer.Noop{})
 
-	// DB settings take priority over env vars — they're what the UI controls.
+	// Deployment-owned env settings take priority so secret rotation is effective
+	// on restart. The database remains the editable fallback for standalone use.
 	dbSMTP, dbErr := handler.LoadEmailSettingsFromDB(db, encKey)
 	if dbErr != nil {
 		logger.Warn("mailer: could not load settings from database", "error", dbErr)
 	}
 
 	switch {
+	case cfg.SMTPHost != "":
+		live.Swap(mailer.NewSMTP(
+			cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass,
+			cfg.SMTPTLS, cfg.SMTPStartTLS, cfg.EmailFrom, cfg.EmailFromName,
+		))
+		logger.Info("mailer: configured from environment", "provider", cfg.EmailProvider,
+			"host", cfg.SMTPHost, "port", cfg.SMTPPort)
+		syncSMTPToDB(db, cfg, encKey, logger)
+
 	case dbSMTP != nil && dbSMTP.Host != "":
 		live.Swap(mailer.NewSMTP(
 			dbSMTP.Host, dbSMTP.Port, dbSMTP.User, dbSMTP.Pass,
@@ -93,20 +119,15 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 		))
 		logger.Info("mailer: configured from database", "host", dbSMTP.Host, "port", dbSMTP.Port)
 
-	case cfg.SMTPHost != "":
-		live.Swap(mailer.NewSMTP(
-			cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass,
-			cfg.SMTPTLS, cfg.SMTPStartTLS, cfg.EmailFrom, cfg.EmailFromName,
-		))
-		logger.Info("mailer: configured from environment", "host", cfg.SMTPHost, "port", cfg.SMTPPort)
-		// Seed env-var settings into DB so they appear in the UI on first boot.
-		seedSMTPToDB(db, cfg, encKey, logger)
-
 	default:
 		logger.Info("mailer: not configured — configure SMTP in Settings or set EMAIL_SMTP_HOST")
 	}
 
-	h.SetMailer(live, cfg.BaseURL)
+	// Lifecycle handlers enqueue into the durable outbox. The worker alone owns
+	// provider I/O; the live transport remains available for explicit connection tests.
+	h.SetMailer(mailer.NewQueue(db), cfg.BaseURL)
+	h.SetMailTransport(live)
+	h.SetEmailEnvironmentManaged(cfg.EmailManagedByEnv)
 
 	drain := func() {}
 	whs, err := webhook.New(db, cfg.EncryptionKey)
@@ -127,24 +148,46 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	// DB Google settings take priority over env vars.
 	googleClientID := cfg.GoogleClientID
 	googleClientSecret := cfg.GoogleClientSecret
-	if dbGoogle, dbGoogleErr := handler.LoadGoogleSettingsFromDB(db, encKey); dbGoogleErr != nil {
-		logger.Warn("google settings: could not load from database", "error", dbGoogleErr)
-	} else if dbGoogle != nil {
-		googleClientID = dbGoogle.ClientID
-		googleClientSecret = dbGoogle.ClientSecret
-		logger.Info("Google OAuth: credentials loaded from database")
+	if cfg.CustodyTransportURL != "" {
+		googleClientID = ""
+		googleClientSecret = ""
+	} else {
+		if dbGoogle, dbGoogleErr := handler.LoadGoogleSettingsFromDB(db, encKey); dbGoogleErr != nil {
+			logger.Warn("google settings: could not load from database", "error", dbGoogleErr)
+		} else if dbGoogle != nil {
+			googleClientID = dbGoogle.ClientID
+			googleClientSecret = dbGoogle.ClientSecret
+			logger.Info("Google OAuth: credentials loaded from database")
+		}
 	}
 
 	// Build one calendar Service and register every configured provider into it.
 	calSvc := calendar.NewService(db)
 	calRedirect := cfg.BaseURL + "/v1/calendar/callback"
 
-	if googleClientID != "" {
+	if googleClientID != "" && googleClientSecret != "" {
 		authRedirect := cfg.BaseURL + "/v1/auth/callback"
 		h.SetGoogleAuth(googleClientID, googleClientSecret, authRedirect, cfg.CookieSecure)
 		logger.Info("Google OAuth login configured", "redirect_url", authRedirect)
+	}
 
-		gc, err := gcal.New(db, googleClientID, googleClientSecret, calRedirect, cfg.EncryptionKey)
+	if (googleClientID != "" && googleClientSecret != "") || cfg.CustodyTransportURL != "" {
+		var gcalOpts []gcal.Option
+		if cfg.CustodyTransportURL != "" {
+			if cfg.CustodyCompanyRef == "" || cfg.CustodyInstanceRef == "" {
+				logger.Error("custody: transport URL set without company/instance ref; custody routing stays off")
+			} else {
+				custodyClient := custody.NewClient(cfg.CustodyTransportURL)
+				if cfg.CustodyAuthHeader != "" {
+					custodyClient = custodyClient.WithCallerAuth(cfg.CustodyAuthHeader)
+				}
+				gcalOpts = append(gcalOpts, gcal.WithCustodyTransport(custodyClient, cfg.CustodyCompanyRef, cfg.CustodyInstanceRef))
+				logger.Info("Bonbon custody transport configured for Google effects",
+					"company_ref", cfg.CustodyCompanyRef, "instance_ref", cfg.CustodyInstanceRef)
+			}
+		}
+
+		gc, err := gcal.New(db, googleClientID, googleClientSecret, calRedirect, cfg.EncryptionKey, gcalOpts...)
 		if err != nil {
 			logger.Error("gcal: init failed", "error", err)
 		} else {
@@ -279,6 +322,17 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.HandleFunc("GET /v1/auth/microsoft/login", authRL(h.LoginMicrosoft))
 	mux.HandleFunc("GET /v1/auth/microsoft/callback", authRL(h.CallbackMicrosoft))
 	mux.HandleFunc("POST /v1/auth/logout", h.Logout)
+
+	// Bonnie-managed lifecycle and calendar APIs are non-browser boundaries.
+	if cfg.BonnieManagedMode {
+		// Operator-key-only managed member lifecycle. These authenticate via
+		// X-Operator-Key, never a browser session or member API key.
+		mux.HandleFunc("POST /v1/managed/members", h.RequireManagedOperator(h.ManagedEnsureMember))
+		mux.HandleFunc("POST /v1/managed/members/{sub}/rebind", h.RequireManagedOperator(h.ManagedRebindMember))
+		mux.HandleFunc("POST /v1/managed/members/{sub}/archive", h.RequireManagedOperator(h.ManagedArchiveMember))
+		mux.HandleFunc("POST /v1/managed/members/{sub}/reactivate", h.RequireManagedOperator(h.ManagedReactivateMember))
+		mux.HandleFunc("POST /v1/managed/members/{sub}/webhooks", h.RequireManagedOperator(h.ManagedCreateMemberWebhook))
+	}
 
 	// MCP server (Model Context Protocol) — Streamable HTTP transport for remote
 	// agents. One server instance reused across requests. Guarded by a bearer token:
@@ -431,12 +485,22 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	// a non-simple request, so the OPTIONS preflight is handled too.
 	mux.HandleFunc("POST /v1/bookings", cors(bookingRL(h.CreateBooking)))
 	mux.HandleFunc("OPTIONS /v1/bookings", cors(func(http.ResponseWriter, *http.Request) {}))
-	mux.HandleFunc("GET /v1/bookings/{id}", h.GetBooking)
+	mux.HandleFunc("GET /v1/bookings/{id}", h.RequireAuth(h.GetBooking))
 	mux.HandleFunc("GET /v1/bookings", h.RequireAuth(h.ListBookings))
+	if cfg.BonnieManagedMode {
+		mux.HandleFunc("POST /v1/calendar/managed-range", h.ManagedCalendarRange)
+		mux.HandleFunc("POST /v1/calendar/managed-availability", h.ManagedAvailability)
+	}
 	mux.HandleFunc("POST /v1/bookings/{id}/cancel", h.RequireAuth(h.CancelBooking))
 	mux.HandleFunc("PATCH /v1/bookings/{id}/reschedule", h.RequireAuth(h.RescheduleBooking))
 	mux.HandleFunc("POST /v1/bookings/{id}/reassign", h.RequireAuth(h.ReassignBooking))
 	mux.HandleFunc("GET /v1/bookings/{id}/answers", h.RequireAuth(h.GetBookingAnswers))
+	if cfg.BonnieManagedMode {
+		mux.HandleFunc("POST /v1/bookings/managed-upsert", h.RequireAuth(h.ManagedBookingUpsert))
+		mux.HandleFunc("POST /v1/bookings/{id}/managed-provider-observation", h.RequireAuth(h.ManagedBookingProviderObservation))
+		mux.HandleFunc("POST /v1/bookings/{id}/managed-location", h.RequireAuth(h.ManagedBookingLocation))
+		mux.HandleFunc("POST /v1/bookings/{id}/managed-cancel", h.RequireAuth(h.ManagedBookingCancel))
+	}
 
 	// Public booking page
 	mux.HandleFunc("GET /embed.js", h.EmbedJS)
@@ -521,24 +585,37 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 	mux.Handle("GET /favicon.ico", favicon)
 
 	// Admin SPA — served at /admin/* with SPA fallback for client-side routing.
+	// In managed mode the SPA guard redirects unauthenticated browsers to the
+	// Bonnie launch surface instead of the native login page.
 	adminSPA := frontend.Handler()
 	mux.Handle("GET /admin", http.RedirectHandler("/admin/", http.StatusMovedPermanently))
-	mux.Handle("/admin/", http.StripPrefix("/admin", adminSPA))
+	mux.Handle("/admin/", http.StripPrefix("/admin", h.ManagedSPAGuard(adminSPA)))
 
 	// Bare root → admin. The `{$}` anchor matches ONLY the exact path "/", so it
 	// stays a no-op for every other unmatched path (those still 404). Public
 	// visitors always arrive via a full /book/{slug} link, so this only affects
-	// an operator landing on the domain root. 302 (not 301) so it isn't cached
-	// permanently if a marketing landing page is ever added here.
-	mux.Handle("GET /{$}", http.RedirectHandler("/admin/", http.StatusFound))
+	// an operator landing on the domain root. In managed mode an unauthenticated
+	// browser is sent to the Bonnie launch surface instead. 302 (not 301) so it
+	// isn't cached permanently if a marketing landing page is ever added here.
+	mux.Handle("GET /{$}", http.HandlerFunc(h.ManagedRoot))
 
-	return RequestID(Logging(logger, SameOriginCheck(mux))), drain
+	return RequestID(Logging(logger, SameOriginCheck(h.ManagedDenyMiddleware(mux)))), drain
 }
 
-// seedSMTPToDB writes env-var SMTP settings into the DB on first boot so they
-// appear in the UI. Uses WHERE smtp_host = ” to avoid a check-then-act race
-// and to never overwrite settings the user has already saved via the UI.
-func seedSMTPToDB(db *sql.DB, cfg *config.Config, encKey [32]byte, logger *slog.Logger) {
+// syncSMTPToDB mirrors deployment-owned SMTP settings into the database for the
+// settings UI. Environment configuration is authoritative, including rotations.
+func syncSMTPToDB(db *sql.DB, cfg *config.Config, encKey [32]byte, logger *slog.Logger) {
+	current, err := handler.LoadEmailSettingsFromDB(db, encKey)
+	if err == nil && current != nil &&
+		current.Host == cfg.SMTPHost && current.Port == cfg.SMTPPort &&
+		current.User == cfg.SMTPUser && current.Pass == cfg.SMTPPass &&
+		current.TLS == cfg.SMTPTLS && current.StartTLS == cfg.SMTPStartTLS &&
+		current.From == cfg.EmailFrom && current.FromName == cfg.EmailFromName {
+		return
+	}
+	if err != nil {
+		logger.Warn("mailer: compare environment settings", "error", err)
+	}
 	var passEnc string
 	if cfg.SMTPPass != "" {
 		enc, err := secret.Encrypt(encKey, cfg.SMTPPass)
@@ -555,21 +632,20 @@ func seedSMTPToDB(db *sql.DB, cfg *config.Config, encKey [32]byte, logger *slog.
 		}
 		return 0
 	}
-	res, err := db.Exec(`
+	_, err = db.Exec(`
 		UPDATE server_settings SET
 		  smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass_enc = ?,
 		  smtp_tls = ?, smtp_starttls = ?,
 		  email_from = ?, email_from_name = ?,
+		  email_verified_at = '', email_last_error = '',
 		  updated_at = datetime('now')
-		WHERE id = 1 AND smtp_host = ''`,
+		WHERE id = 1`,
 		cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, passEnc,
 		boolToInt(cfg.SMTPTLS), boolToInt(cfg.SMTPStartTLS),
 		cfg.EmailFrom, cfg.EmailFromName)
 	if err != nil {
-		logger.Warn("mailer: seed to database failed", "error", err)
+		logger.Warn("mailer: sync to database failed", "error", err)
 		return
 	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		logger.Info("mailer: seeded SMTP settings from env vars into database (env vars can now be removed)")
-	}
+	logger.Info("mailer: synchronized deployment-owned email settings")
 }

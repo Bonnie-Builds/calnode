@@ -9,10 +9,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -25,6 +28,19 @@ import (
 	"github.com/calnode/calnode/internal/uid"
 )
 
+// CalendarScope is the full read/write scope Calnode needs for free/busy,
+// event projection, reconciliation, and Google Meet creation.
+const CalendarScope = "https://www.googleapis.com/auth/calendar"
+
+var (
+	ErrManagedCredentialInvalid = errors.New("managed Google credential is invalid")
+	ErrManagedMissingScope      = errors.New("managed Google credential lacks calendar scope")
+	ErrManagedClientMismatch    = errors.New("managed Google credential belongs to another OAuth client")
+	ErrManagedAccountMismatch   = errors.New("managed Google credential belongs to another Google account")
+)
+
+const defaultTokenInfoURL = "https://oauth2.googleapis.com/tokeninfo"
+
 // Client implements calendar.Provider for Google Calendar.
 var _ calendar.Provider = (*Client)(nil)
 
@@ -35,35 +51,348 @@ func (c *Client) Name() string { return "google" }
 // so Calnode must not also attach an .ics (it would duplicate).
 func (c *Client) InvitesGuests() bool { return true }
 
-// Client manages Google Calendar OAuth tokens and API access.
+// Client manages Google Calendar OAuth tokens and API access. When a custody
+// transport is configured (WithCustodyTransport) its Google effects ride
+// Bonbon's operation-shaped custody boundary instead (internal/gcal/custody.go).
 type Client struct {
-	config  *oauth2.Config
-	key     [32]byte
-	db      *sql.DB
-	logger  *slog.Logger
-	apiBase string // base URL for Calendar API; overridable in tests
+	config           *oauth2.Config
+	key              [32]byte
+	db               *sql.DB
+	logger           *slog.Logger
+	apiBase          string // base URL for Calendar API; overridable in tests
+	tokenInfoURL     string
+	validationClient *http.Client
+
+	// Custody transport adapter (Phase 3). nil ⇒ direct-Google path unchanged.
+	custodyTx          EffectTransport
+	custodyCompanyRef  string
+	custodyInstanceRef string
+}
+
+// Option configures provider endpoints. Production uses Google's fixed
+// endpoints; tests use a local validation server.
+type Option func(*Client)
+
+// WithValidationEndpoints overrides the tokeninfo and Calendar API endpoints.
+// It is primarily useful for deterministic conformance tests.
+func WithValidationEndpoints(tokenInfoURL, apiBase string) Option {
+	return func(c *Client) {
+		c.tokenInfoURL = tokenInfoURL
+		c.apiBase = apiBase
+	}
+}
+
+// WithManagedValidationEndpoints overrides the OAuth refresh, tokeninfo, and
+// Calendar API endpoints used to prove a managed credential before persistence.
+func WithManagedValidationEndpoints(tokenURL, tokenInfoURL, apiBase string) Option {
+	return func(c *Client) {
+		c.config.Endpoint.TokenURL = tokenURL
+		c.tokenInfoURL = tokenInfoURL
+		c.apiBase = apiBase
+	}
 }
 
 // New creates a Client. encKeyHex is the 64-char hex AES-256 encryption key.
-func New(db *sql.DB, clientID, clientSecret, redirectURL, encKeyHex string) (*Client, error) {
+func New(db *sql.DB, clientID, clientSecret, redirectURL, encKeyHex string, opts ...Option) (*Client, error) {
 	b, err := hex.DecodeString(encKeyHex)
 	if err != nil || len(b) != 32 {
 		return nil, fmt.Errorf("gcal: invalid encryption key")
 	}
 	var key [32]byte
 	copy(key[:], b)
-	return &Client{
+	client := &Client{
 		config: &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			Endpoint:     google.Endpoint,
 			RedirectURL:  redirectURL,
-			Scopes:       []string{"https://www.googleapis.com/auth/calendar"},
+			Scopes:       []string{CalendarScope},
 		},
-		key:     key,
-		db:      db,
-		logger:  slog.Default(),
-		apiBase: "https://www.googleapis.com/calendar/v3",
+		key:              key,
+		db:               db,
+		logger:           slog.Default(),
+		apiBase:          "https://www.googleapis.com/calendar/v3",
+		tokenInfoURL:     defaultTokenInfoURL,
+		validationClient: http.DefaultClient,
+	}
+	for _, opt := range opts {
+		opt(client)
+	}
+	return client, nil
+}
+
+// ManagedCredential is Google OAuth material granted and retained by Bonnie.
+// It must only cross the authenticated server-to-server boundary.
+type ManagedCredential struct {
+	AccessToken  string
+	RefreshToken string
+	Expiry       time.Time
+	AccountEmail string
+	CalendarID   string
+}
+
+// ManagedCredentialResult is the non-secret identity Calnode accepted.
+type ManagedCredentialResult struct {
+	AccountEmail string
+	CalendarID   string
+}
+
+// ManagedCredentialReadiness is the safe, non-secret status of the exact
+// authenticated member's Bonnie-installed Google credential.
+type ManagedCredentialReadiness string
+
+const (
+	ManagedCredentialReady                ManagedCredentialReadiness = "ready"
+	ManagedCredentialAuthorizationMissing ManagedCredentialReadiness = "authorization_missing"
+	ManagedCredentialAuthorizationExpired ManagedCredentialReadiness = "authorization_expired"
+	ManagedCredentialAuthorizationRevoked ManagedCredentialReadiness = "authorization_revoked"
+	ManagedCredentialWrongAccount         ManagedCredentialReadiness = "wrong_account"
+	ManagedCredentialMissingScope         ManagedCredentialReadiness = "missing_scope"
+)
+
+// ManagedCredentialReadinessResult contains no OAuth material. AccountEmail is
+// returned only across the API-key-authenticated backend boundary so Bonbon can
+// compare it with the exact installed connection binding.
+type ManagedCredentialReadinessResult struct {
+	Readiness    ManagedCredentialReadiness
+	AccountEmail string
+}
+
+// InstallManagedCredential validates a Bonnie-owned Google grant before
+// encrypting an operational copy for exactly one Calnode user.
+func (c *Client) InstallManagedCredential(ctx context.Context, userID string, credential ManagedCredential) (ManagedCredentialResult, error) {
+	accessToken := strings.TrimSpace(credential.AccessToken)
+	refreshToken := strings.TrimSpace(credential.RefreshToken)
+	if strings.TrimSpace(userID) == "" || accessToken == "" || refreshToken == "" || credential.Expiry.IsZero() {
+		return ManagedCredentialResult{}, ErrManagedCredentialInvalid
+	}
+	refreshed, err := c.config.TokenSource(ctx, &oauth2.Token{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(-time.Second),
+	}).Token()
+	if err != nil || strings.TrimSpace(refreshed.AccessToken) == "" {
+		return ManagedCredentialResult{}, fmt.Errorf("%w: refresh token rejected", ErrManagedCredentialInvalid)
+	}
+	if strings.TrimSpace(refreshed.RefreshToken) == "" {
+		refreshed.RefreshToken = refreshToken
+	}
+	accessToken = strings.TrimSpace(refreshed.AccessToken)
+
+	tokenInfoURL, err := url.Parse(c.tokenInfoURL)
+	if err != nil || tokenInfoURL.Scheme == "" || tokenInfoURL.Host == "" {
+		return ManagedCredentialResult{}, fmt.Errorf("%w: token validation endpoint", ErrManagedCredentialInvalid)
+	}
+	query := tokenInfoURL.Query()
+	query.Set("access_token", accessToken)
+	tokenInfoURL.RawQuery = query.Encode()
+	tokenInfoRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenInfoURL.String(), nil)
+	if err != nil {
+		return ManagedCredentialResult{}, fmt.Errorf("%w: token validation request", ErrManagedCredentialInvalid)
+	}
+	tokenInfoResponse, err := c.validationClient.Do(tokenInfoRequest)
+	if err != nil {
+		return ManagedCredentialResult{}, fmt.Errorf("managed Google token validation unavailable: %w", err)
+	}
+	defer tokenInfoResponse.Body.Close()
+	if tokenInfoResponse.StatusCode != http.StatusOK {
+		return ManagedCredentialResult{}, ErrManagedCredentialInvalid
+	}
+	var tokenInfo struct {
+		Audience string `json:"aud"`
+		Scope    string `json:"scope"`
+	}
+	if err := json.NewDecoder(tokenInfoResponse.Body).Decode(&tokenInfo); err != nil {
+		return ManagedCredentialResult{}, ErrManagedCredentialInvalid
+	}
+	if tokenInfo.Audience != c.config.ClientID {
+		return ManagedCredentialResult{}, ErrManagedClientMismatch
+	}
+	hasCalendarScope := false
+	for _, scope := range strings.Fields(tokenInfo.Scope) {
+		if scope == CalendarScope {
+			hasCalendarScope = true
+			break
+		}
+	}
+	if !hasCalendarScope {
+		return ManagedCredentialResult{}, ErrManagedMissingScope
+	}
+
+	primaryURL := strings.TrimRight(c.apiBase, "/") + "/calendars/primary"
+	primaryRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, primaryURL, nil)
+	if err != nil {
+		return ManagedCredentialResult{}, fmt.Errorf("%w: primary calendar request", ErrManagedCredentialInvalid)
+	}
+	primaryRequest.Header.Set("Authorization", "Bearer "+accessToken)
+	primaryResponse, err := c.validationClient.Do(primaryRequest)
+	if err != nil {
+		return ManagedCredentialResult{}, fmt.Errorf("managed Google account validation unavailable: %w", err)
+	}
+	defer primaryResponse.Body.Close()
+	if primaryResponse.StatusCode != http.StatusOK {
+		return ManagedCredentialResult{}, ErrManagedCredentialInvalid
+	}
+	var primary struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(primaryResponse.Body).Decode(&primary); err != nil || strings.TrimSpace(primary.ID) == "" {
+		return ManagedCredentialResult{}, ErrManagedCredentialInvalid
+	}
+	accountEmail := strings.ToLower(strings.TrimSpace(primary.ID))
+	expectedEmail := strings.ToLower(strings.TrimSpace(credential.AccountEmail))
+	if expectedEmail != "" && expectedEmail != accountEmail {
+		return ManagedCredentialResult{}, ErrManagedAccountMismatch
+	}
+	calendarID := strings.TrimSpace(credential.CalendarID)
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+	if calendarID != "primary" {
+		return ManagedCredentialResult{}, ErrManagedCredentialInvalid
+	}
+	if err := c.saveToken(ctx, userID, calendarID, accountEmail, refreshed); err != nil {
+		return ManagedCredentialResult{}, fmt.Errorf("managed Google credential persistence: %w", err)
+	}
+	return ManagedCredentialResult{AccountEmail: accountEmail, CalendarID: calendarID}, nil
+}
+
+// ManagedCredentialStatus actively refreshes and validates the exact user's
+// stored managed Google credential. A stored row alone is never readiness:
+// this proves refresh-token validity, OAuth client/scope, and primary-account
+// identity before returning ready.
+func (c *Client) ManagedCredentialStatus(ctx context.Context, userID string) (ManagedCredentialReadinessResult, error) {
+	var accessEnc, refreshEnc, calID, expiryStr, storedEmail string
+	err := c.db.QueryRowContext(ctx, `
+		SELECT access_token_enc, COALESCE(refresh_token_enc,''), calendar_id,
+		       COALESCE(expiry_at,''), COALESCE(account_email,'')
+		FROM calendar_connections
+		WHERE user_id = ? AND provider = 'google' AND is_destination = 1
+		LIMIT 1`, userID).Scan(&accessEnc, &refreshEnc, &calID, &expiryStr, &storedEmail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialAuthorizationMissing}, nil
+	}
+	if err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: load managed readiness: %w", err)
+	}
+	access, err := c.decrypt(accessEnc)
+	if err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: decrypt managed access token: %w", err)
+	}
+	if strings.TrimSpace(refreshEnc) == "" {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialAuthorizationExpired}, nil
+	}
+	refresh, err := c.decrypt(refreshEnc)
+	if err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: decrypt managed refresh token: %w", err)
+	}
+	if strings.TrimSpace(string(refresh)) == "" {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialAuthorizationExpired}, nil
+	}
+
+	// Force a refresh even when the cached access token has not expired. This is
+	// the only way readiness can detect a revoked refresh grant before a later
+	// booking mutation discovers it.
+	refreshed, err := c.config.TokenSource(ctx, &oauth2.Token{
+		AccessToken:  strings.TrimSpace(string(access)),
+		RefreshToken: strings.TrimSpace(string(refresh)),
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(-time.Second),
+	}).Token()
+	if err != nil {
+		var retrieveError *oauth2.RetrieveError
+		if errors.As(err, &retrieveError) && (retrieveError.ErrorCode == "invalid_grant" || retrieveError.ErrorCode == "invalid_token") {
+			return ManagedCredentialReadinessResult{Readiness: ManagedCredentialAuthorizationRevoked}, nil
+		}
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: managed readiness refresh unavailable: %w", err)
+	}
+	if strings.TrimSpace(refreshed.AccessToken) == "" {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialAuthorizationRevoked}, nil
+	}
+	if strings.TrimSpace(refreshed.RefreshToken) == "" {
+		refreshed.RefreshToken = strings.TrimSpace(string(refresh))
+	}
+
+	tokenInfoURL, err := url.Parse(c.tokenInfoURL)
+	if err != nil || tokenInfoURL.Scheme == "" || tokenInfoURL.Host == "" {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: invalid managed readiness token endpoint")
+	}
+	query := tokenInfoURL.Query()
+	query.Set("access_token", strings.TrimSpace(refreshed.AccessToken))
+	tokenInfoURL.RawQuery = query.Encode()
+	tokenInfoRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenInfoURL.String(), nil)
+	if err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: create managed readiness token request: %w", err)
+	}
+	tokenInfoResponse, err := c.validationClient.Do(tokenInfoRequest)
+	if err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: managed readiness token validation: %w", err)
+	}
+	defer tokenInfoResponse.Body.Close()
+	if tokenInfoResponse.StatusCode == http.StatusBadRequest || tokenInfoResponse.StatusCode == http.StatusUnauthorized || tokenInfoResponse.StatusCode == http.StatusForbidden {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialAuthorizationRevoked}, nil
+	}
+	if tokenInfoResponse.StatusCode != http.StatusOK {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: managed readiness token validation status %d", tokenInfoResponse.StatusCode)
+	}
+	var tokenInfo struct {
+		Audience string `json:"aud"`
+		Scope    string `json:"scope"`
+	}
+	if err := json.NewDecoder(tokenInfoResponse.Body).Decode(&tokenInfo); err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: decode managed readiness token: %w", err)
+	}
+	if tokenInfo.Audience != c.config.ClientID {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialWrongAccount}, nil
+	}
+	hasCalendarScope := false
+	for _, scope := range strings.Fields(tokenInfo.Scope) {
+		if scope == CalendarScope {
+			hasCalendarScope = true
+			break
+		}
+	}
+	if !hasCalendarScope {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialMissingScope}, nil
+	}
+
+	primaryURL := strings.TrimRight(c.apiBase, "/") + "/calendars/primary"
+	primaryRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, primaryURL, nil)
+	if err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: create managed readiness account request: %w", err)
+	}
+	primaryRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(refreshed.AccessToken))
+	primaryResponse, err := c.validationClient.Do(primaryRequest)
+	if err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: managed readiness account validation: %w", err)
+	}
+	defer primaryResponse.Body.Close()
+	if primaryResponse.StatusCode == http.StatusUnauthorized || primaryResponse.StatusCode == http.StatusForbidden {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialAuthorizationRevoked}, nil
+	}
+	if primaryResponse.StatusCode == http.StatusNotFound {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialWrongAccount}, nil
+	}
+	if primaryResponse.StatusCode != http.StatusOK {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: managed readiness account validation status %d", primaryResponse.StatusCode)
+	}
+	var primary struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(primaryResponse.Body).Decode(&primary); err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: decode managed readiness account: %w", err)
+	}
+	accountEmail := strings.ToLower(strings.TrimSpace(primary.ID))
+	if accountEmail == "" || accountEmail != strings.ToLower(strings.TrimSpace(storedEmail)) {
+		return ManagedCredentialReadinessResult{Readiness: ManagedCredentialWrongAccount}, nil
+	}
+	if err := c.saveToken(ctx, userID, calID, accountEmail, refreshed); err != nil {
+		return ManagedCredentialReadinessResult{}, fmt.Errorf("gcal: persist managed readiness refresh: %w", err)
+	}
+	return ManagedCredentialReadinessResult{
+		Readiness:    ManagedCredentialReady,
+		AccountEmail: accountEmail,
 	}, nil
 }
 
@@ -273,6 +602,10 @@ func (c *Client) DestinationClient(ctx context.Context, userID string) (*http.Cl
 // (somewhere to write events). Used by the reconciler to skip hosts who can
 // never get a calendar event, avoiding pointless retries.
 func (c *Client) HasDestination(ctx context.Context, userID string) (bool, error) {
+	if c.custodyEnabled() {
+		_, ok := c.destinationMemberSub(ctx, userID)
+		return ok, nil
+	}
 	var x int
 	err := c.db.QueryRowContext(ctx,
 		`SELECT 1 FROM calendar_connections WHERE user_id = ? AND provider = 'google' AND is_destination = 1 LIMIT 1`,

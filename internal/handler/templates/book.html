@@ -1,25 +1,27 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<title>{{.Name}}</title>
+<title>{{.Name}}{{if .BusinessName}} — {{.BusinessName}}{{end}}</title>
 {{template "demoNoindex" .}}
 {{template "trackingHead" .}}
 {{.HeadHTML}}
 {{if .DataLayerEnabled}}
 <script>
   window.dataLayer = window.dataLayer || [];
-  window.__CALNODE_DL = { fields: {{.DataLayerFields}}, questions: {{.QuestionsJSON}} };
-  function calnodePush(eventName, data) {
-    if (!window.__CALNODE_DL) return;
+  window.__BONNIE_DL = { fields: {{.DataLayerFields}}, questions: {{.QuestionsJSON}} };
+  function bonniePush(eventName, data, legacyEventName) {
+    if (!window.__BONNIE_DL) return;
     var out = { event: eventName };
-    (window.__CALNODE_DL.fields || []).forEach(function (k) {
+    (window.__BONNIE_DL.fields || []).forEach(function (k) {
       var v = data[k];
       if (v !== undefined && v !== null && v !== '') out[k] = v;
     });
     (window.dataLayer = window.dataLayer || []).push(out);
+    if (legacyEventName) window.dataLayer.push(Object.assign({}, out, { event: legacyEventName }));
   }
 </script>
 {{end}}
@@ -39,6 +41,7 @@ body {
   padding: 2.5rem 1rem 2rem;
   gap: 1.25rem;
 }
+html.dark body { background: #0c0d10; color: #e6e6e9; }
 
 /* .powered-by footer (links + Cookie-settings button) is styled in booking.css so
    the book and manage surfaces share one rule. */
@@ -248,6 +251,18 @@ body {
   const EVENT_NAME = {{.Name}};
   let TZ         = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+  // Reusable-link correlation: read the opaque #bnc= fragment once into ephemeral
+  // memory, immediately strip it from the visible URL/history, and forward it only
+  // in the booking POST. Absent/unknown values are inert.
+  let CORRELATION_REF = '';
+  (function () {
+    try {
+      var m = window.location.hash.match(/[#&]bnc=([A-Za-z0-9_-]+)/);
+      if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search);
+      if (m && m[1]) CORRELATION_REF = m[1];
+    } catch (e) { /* replaceState can throw in rare sandboxed frames; correlation stays empty */ }
+  })();
+
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const maxDate = MAX_DAYS > 0 ? new Date(today.getTime() + MAX_DAYS * 86400000) : null;
 
@@ -326,8 +341,8 @@ body {
     showView('confirm-view');
     // Fire the conversion event for paid bookings too (the form-submit path redirected to
     // Stripe before it could). transaction_id lets GA4/GTM dedupe on refresh.
-    if (window.__CALNODE_DL && typeof calnodePush === 'function') {
-      calnodePush('calnode_booking_confirmed', {
+    if (window.__BONNIE_DL && typeof bonniePush === 'function') {
+      bonniePush('bonnie_booking_confirmed', {
         event_type_slug: SLUG,
         event_type_name: EVENT_NAME,
         status: 'confirmed',
@@ -335,7 +350,7 @@ body {
         value: PRICE_CENTS / 100,
         currency: (CURRENCY || 'usd').toUpperCase(),
         transaction_id: params.get('session_id') || '',
-      });
+      }, 'calnode_booking_confirmed');
     }
     if (typeof ga4Convert === 'function') ga4Convert(true, PRICE_CENTS / 100, CURRENCY, params.get('session_id'));
   })();
@@ -579,6 +594,7 @@ body {
           email: form.email.value.trim(),
           timezone: TZ,
           company: form.company.value,
+          correlation_ref: CORRELATION_REF,
           answers,
         }),
       });
@@ -613,13 +629,13 @@ body {
       $('confirm-time').textContent = `${fmtDate(pickedDate)} · ${fmtTime(pickedSlot.start)}`;
       showView('confirm-view');
 
-      if (window.__CALNODE_DL && typeof calnodePush === 'function') {
+      if (window.__BONNIE_DL && typeof bonniePush === 'function') {
         var dlAnswers = {};
         (answers || []).forEach(function (a) {
-          var label = (window.__CALNODE_DL.questions || {})[a.question_id] || a.question_id;
+          var label = (window.__BONNIE_DL.questions || {})[a.question_id] || a.question_id;
           dlAnswers[label] = a.value;
         });
-        calnodePush('calnode_booking_confirmed', {
+        bonniePush('bonnie_booking_confirmed', {
           booking_id: booked && booked.id,
           event_type_slug: SLUG,
           event_type_name: EVENT_NAME,
@@ -635,7 +651,7 @@ body {
           is_paid: false,
           value: PRICE_CENTS / 100,
           currency: (CURRENCY || 'usd').toUpperCase(),
-        });
+        }, 'calnode_booking_confirmed');
       }
       if (typeof ga4Convert === 'function') ga4Convert(false, PRICE_CENTS / 100, CURRENCY, booked && booked.id);
 
@@ -795,8 +811,8 @@ body {
         messages.push({ role: 'assistant', content: botEl.textContent });
         if (booking) botEl.className = 'asst-msg ok';
       }
-      if (booking && typeof calnodePush === 'function') {
-        calnodePush('calnode_booking_confirmed', { booking_id: booking.id, via: 'assistant' });
+      if (booking && typeof bonniePush === 'function') {
+        bonniePush('bonnie_booking_confirmed', { booking_id: booking.id, via: 'assistant' }, 'calnode_booking_confirmed');
       }
       if (booking && typeof ga4Convert === 'function') ga4Convert(false, 0, '', booking.id);
     } catch (err) {

@@ -11,6 +11,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"strings"
+	"time"
 
 	"github.com/calnode/calnode/internal/uid"
 )
@@ -55,6 +56,10 @@ func (s *SMTP) Send(ctx context.Context, msg Message) error {
 		if err != nil {
 			return fmt.Errorf("mailer: tls dial %s: %w", addr, err)
 		}
+		if err := setSMTPDeadline(ctx, conn); err != nil {
+			conn.Close() // #nosec G104 -- returning the deadline error
+			return err
+		}
 		c, err = smtp.NewClient(conn, s.host)
 		if err != nil {
 			conn.Close() // #nosec G104 -- already returning a more specific error; nothing actionable on close error
@@ -65,6 +70,10 @@ func (s *SMTP) Send(ctx context.Context, msg Message) error {
 		conn, err := nd.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			return fmt.Errorf("mailer: dial %s: %w", addr, err)
+		}
+		if err := setSMTPDeadline(ctx, conn); err != nil {
+			conn.Close() // #nosec G104 -- returning the deadline error
+			return err
 		}
 		c, err = smtp.NewClient(conn, s.host)
 		if err != nil {
@@ -119,6 +128,17 @@ func (s *SMTP) Send(ctx context.Context, msg Message) error {
 	return nil
 }
 
+func setSMTPDeadline(ctx context.Context, conn net.Conn) error {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(30 * time.Second)
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		return fmt.Errorf("mailer: set SMTP deadline: %w", err)
+	}
+	return nil
+}
+
 func (s *SMTP) buildRaw(msg Message) []byte {
 	from := mail.Address{Name: s.fromName, Address: s.from}
 
@@ -145,6 +165,10 @@ func (s *SMTP) buildRaw(msg Message) []byte {
 	fmt.Fprintf(&buf, "From: %s\r\n", from.String())
 	fmt.Fprintf(&buf, "To: %s\r\n", strings.Join(toFormatted, ", "))
 	fmt.Fprintf(&buf, "Subject: %s\r\n", subject)
+	if msg.IdempotencyKey != "" && len(msg.IdempotencyKey) <= 256 &&
+		!strings.ContainsAny(msg.IdempotencyKey, "\r\n") {
+		fmt.Fprintf(&buf, "Resend-Idempotency-Key: %s\r\n", msg.IdempotencyKey)
+	}
 	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")
 
 	hasHTML := msg.HTML != ""

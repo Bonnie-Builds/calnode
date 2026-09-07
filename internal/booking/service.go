@@ -137,9 +137,9 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (*Booking, error) 
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO bookings
-		  (id, event_type_id, host_id, start_at, end_at, status, location_value, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?)`,
-		bookingID, p.EventTypeID, chosenHost, startStr, endStr, p.LocationValue, now, now)
+		  (id, event_type_id, host_id, start_at, end_at, status, location_value, correlation_ref, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)`,
+		bookingID, p.EventTypeID, chosenHost, startStr, endStr, p.LocationValue, nullableCorrelation(p.CorrelationRef), now, now)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrDoubleBooked
@@ -172,6 +172,18 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (*Booking, error) 
 	if err != nil {
 		return nil, fmt.Errorf("booking: insert attendee: %w", err)
 	}
+	for _, participant := range p.Participants {
+		tz := participant.IANATimezone
+		if tz == "" {
+			tz = "UTC"
+		}
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO booking_attendees (id, booking_id, name, email, iana_timezone, is_organizer)
+			VALUES (?, ?, ?, ?, ?, 0)`,
+			uid.New(), bookingID, participant.Name, participant.Email, tz); err != nil {
+			return nil, fmt.Errorf("booking: insert participant: %w", err)
+		}
+	}
 
 	for _, ans := range p.Answers {
 		_, err = tx.ExecContext(ctx, `
@@ -189,16 +201,26 @@ func (s *Service) Create(ctx context.Context, p CreateParams) (*Booking, error) 
 
 	nowT, _ := time.Parse(time.RFC3339Nano, now)
 	return &Booking{
-		ID:            bookingID,
-		EventTypeID:   p.EventTypeID,
-		HostID:        chosenHost,
-		StartAt:       p.StartAt.UTC(),
-		EndAt:         p.EndAt.UTC(),
-		Status:        "confirmed",
-		LocationValue: p.LocationValue,
-		CreatedAt:     nowT,
-		UpdatedAt:     nowT,
+		ID:             bookingID,
+		EventTypeID:    p.EventTypeID,
+		HostID:         chosenHost,
+		StartAt:        p.StartAt.UTC(),
+		EndAt:          p.EndAt.UTC(),
+		Status:         "confirmed",
+		LocationValue:  p.LocationValue,
+		Timezone:       tz,
+		CorrelationRef: p.CorrelationRef,
+		CreatedAt:      nowT,
+		UpdatedAt:      nowT,
 	}, nil
+}
+
+// nullableCorrelation returns the correlation ref as a nullable value.
+func nullableCorrelation(ref string) any {
+	if ref == "" {
+		return nil
+	}
+	return ref
 }
 
 // Cancel marks a booking as cancelled. hostID must match the booking's host_id
@@ -266,7 +288,8 @@ func (s *Service) CancelByID(ctx context.Context, id, reason string) error {
 const bookingColumns = `id, event_type_id, host_id, start_at, end_at, status,
 	       COALESCE(cancellation_reason, ''), COALESCE(location_value, ''),
 	       created_at, updated_at,
-	       payment_status, amount_paid_cents, amount_paid_currency`
+	       payment_status, amount_paid_cents, amount_paid_currency,
+	       COALESCE(correlation_ref, '')`
 
 // hostBusy reports whether hostID has any non-cancelled booking overlapping
 // [start, end) — the double-booking invariant every write path (Create, Reschedule,
@@ -289,7 +312,38 @@ func hostBusy(ctx context.Context, tx *sql.Tx, hostID, start, end, excludeBookin
 // Get returns a single booking by ID.
 func (s *Service) Get(ctx context.Context, id string) (*Booking, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+bookingColumns+` FROM bookings WHERE id = ?`, id)
-	return scanBooking(row)
+	result, err := scanBooking(row)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(iana_timezone, 'UTC')
+		FROM booking_attendees
+		WHERE booking_id = ? AND is_organizer = 1`, id).Scan(&result.Timezone); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("booking: load organizer timezone: %w", err)
+		}
+		result.Timezone = "UTC"
+	}
+	return result, nil
+}
+
+// UpdateLocation revision-independently persists a location after the caller
+// has completed its own ownership and expected-revision checks. Provider event
+// updates happen before this write so authoritative booking reads cannot claim
+// a Bonnie Room location that failed to reach the connected calendar.
+func (s *Service) UpdateLocation(ctx context.Context, bookingID, location string) (*Booking, error) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE bookings SET location_value = ?, updated_at = ?
+		WHERE id = ? AND status != 'cancelled'`, location, now, bookingID)
+	if err != nil {
+		return nil, fmt.Errorf("booking: update location: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return nil, ErrNotFound
+	}
+	return s.Get(ctx, bookingID)
 }
 
 // ListByHost returns all non-cancelled bookings a user is hosting, ordered by
@@ -319,6 +373,90 @@ func (s *Service) ListByHost(ctx context.Context, hostID string) ([]Booking, err
 		out = append(out, *b)
 	}
 	return out, rows.Err()
+}
+
+// CalendarBooking is the privacy-minimal booking row used by the bounded
+// managed-member calendar range API. It deliberately excludes attendees,
+// locations, payment data, provider event identifiers, and answers.
+type CalendarBooking struct {
+	ID             string
+	Title          string
+	StartAt        time.Time
+	EndAt          time.Time
+	Timezone       string
+	CorrelationRef string
+}
+
+// ListCalendarByHostRange returns at most maxRows+1 non-cancelled bookings the
+// exact host attends and that overlap [from, to). The extra row lets the caller
+// fail closed on excessive range density without performing an unbounded read.
+func (s *Service) ListCalendarByHostRange(
+	ctx context.Context,
+	hostID string,
+	from time.Time,
+	to time.Time,
+	maxRows int,
+) ([]CalendarBooking, error) {
+	if hostID == "" || !to.After(from) || maxRows <= 0 {
+		return nil, fmt.Errorf("booking: invalid calendar range")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT b.id, et.name, b.start_at, b.end_at,
+		       COALESCE((
+		         SELECT ba.iana_timezone
+		         FROM booking_attendees ba
+		         WHERE ba.booking_id = b.id AND ba.is_organizer = 1
+		         LIMIT 1
+		       ), 'UTC'),
+		       COALESCE(b.correlation_ref, '')
+		FROM bookings b
+		JOIN event_types et ON et.id = b.event_type_id
+		WHERE b.status != 'cancelled'
+		  AND b.start_at < ? AND b.end_at > ?
+		  AND (b.host_id = ? OR EXISTS (
+		        SELECT 1 FROM booking_hosts bh
+		        WHERE bh.booking_id = b.id AND bh.user_id = ?))
+		ORDER BY b.start_at, b.id
+		LIMIT ?`,
+		to.UTC().Format(time.RFC3339Nano),
+		from.UTC().Format(time.RFC3339Nano),
+		hostID,
+		hostID,
+		maxRows+1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("booking: calendar range: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]CalendarBooking, 0, maxRows+1)
+	for rows.Next() {
+		var item CalendarBooking
+		var startAt, endAt string
+		if err := rows.Scan(
+			&item.ID,
+			&item.Title,
+			&startAt,
+			&endAt,
+			&item.Timezone,
+			&item.CorrelationRef,
+		); err != nil {
+			return nil, fmt.Errorf("booking: scan calendar range: %w", err)
+		}
+		item.StartAt, err = time.Parse(time.RFC3339Nano, startAt)
+		if err != nil {
+			return nil, fmt.Errorf("booking: parse calendar start: %w", err)
+		}
+		item.EndAt, err = time.Parse(time.RFC3339Nano, endAt)
+		if err != nil {
+			return nil, fmt.Errorf("booking: parse calendar end: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("booking: calendar range rows: %w", err)
+	}
+	return out, nil
 }
 
 // ListAll returns every non-cancelled booking in the workspace, ordered by start
@@ -463,6 +601,20 @@ func leastLoadedHost(ctx context.Context, tx *sql.Tx, eventTypeID string, candid
 // it is cancelled, and ErrDoubleBooked if the new slot overlaps another
 // confirmed booking for the same host.
 func (s *Service) Reschedule(ctx context.Context, bookingID string, newStart, newEnd time.Time) (*Booking, error) {
+	return s.reschedule(ctx, bookingID, newStart, newEnd, "")
+}
+
+// RescheduleWithTimezone atomically moves a managed booking and updates the
+// attendee timezone used by the authoritative booking read. The managed caller
+// validates the IANA timezone before entering this service boundary.
+func (s *Service) RescheduleWithTimezone(ctx context.Context, bookingID string, newStart, newEnd time.Time, timezone string) (*Booking, error) {
+	if strings.TrimSpace(timezone) == "" {
+		return nil, fmt.Errorf("booking: timezone must not be empty")
+	}
+	return s.reschedule(ctx, bookingID, newStart, newEnd, timezone)
+}
+
+func (s *Service) reschedule(ctx context.Context, bookingID string, newStart, newEnd time.Time, timezone string) (*Booking, error) {
 	startStr := newStart.UTC().Format(time.RFC3339Nano)
 	endStr := newEnd.UTC().Format(time.RFC3339Nano)
 
@@ -519,6 +671,13 @@ func (s *Service) Reschedule(ctx context.Context, bookingID string, newStart, ne
 		}
 		return nil, fmt.Errorf("booking: reschedule update: %w", err)
 	}
+	if timezone != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE booking_attendees SET iana_timezone = ? WHERE booking_id = ?`,
+			timezone, bookingID); err != nil {
+			return nil, fmt.Errorf("booking: reschedule timezone update: %w", err)
+		}
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("booking: reschedule commit: %w", err)
@@ -526,6 +685,9 @@ func (s *Service) Reschedule(ctx context.Context, bookingID string, newStart, ne
 
 	b.StartAt = newStart.UTC()
 	b.EndAt = newEnd.UTC()
+	if timezone != "" {
+		b.Timezone = timezone
+	}
 	if t, err := time.Parse(time.RFC3339Nano, now); err == nil {
 		b.UpdatedAt = t
 	}
@@ -659,6 +821,7 @@ func scanBooking(s scanner) (*Booking, error) {
 		&b.CancellationReason, &b.LocationValue,
 		&createdStr, &updatedStr,
 		&b.PaymentStatus, &b.AmountPaidCents, &b.AmountPaidCurrency,
+		&b.CorrelationRef,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound

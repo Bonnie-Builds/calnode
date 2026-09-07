@@ -86,7 +86,7 @@ func (rw *responseWriter) Flush() {
 func SameOriginCheck(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isStateChanging(r.Method) {
-			if _, err := r.Cookie("calnode_session"); err == nil {
+			if hasBrowserSessionCookie(r) {
 				if src := requestOriginHost(r); src != "" && !strings.EqualFold(src, r.Host) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusForbidden)
@@ -97,6 +97,15 @@ func SameOriginCheck(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func hasBrowserSessionCookie(r *http.Request) bool {
+	for _, name := range []string{"calnode_session", "calnode_session_local"} {
+		if _, err := r.Cookie(name); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func isStateChanging(method string) bool {

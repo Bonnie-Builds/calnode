@@ -429,8 +429,11 @@ func (h *Handler) BookPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", publicCSP(track))
-	w.Header().Set("X-Frame-Options", "DENY")
+	bookingCSP, frameAllowed := h.managedBookingPagePolicy(track)
+	w.Header().Set("Content-Security-Policy", bookingCSP)
+	if !frameAllowed {
+		w.Header().Set("X-Frame-Options", "DENY")
+	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := bookTmpl.Execute(w, data); err != nil {
 		h.logger.ErrorContext(r.Context(), "book page: template", "error", err)

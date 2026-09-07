@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/calnode/calnode/internal/mailer"
 	"github.com/calnode/calnode/internal/secret"
@@ -28,13 +29,15 @@ type SMTPConfig struct {
 // the password. Returns nil (not an error) when smtp_host is empty — meaning
 // the settings have not been configured yet.
 func LoadEmailSettingsFromDB(db *sql.DB, encKey [32]byte) (*SMTPConfig, error) {
-	var host, port, user, passEnc, from, fromName string
+	var host, port, user, passEnc, from, fromName, verifiedAt, lastError string
 	var smtpTLS, startTLS int
 	err := db.QueryRow(`
 		SELECT smtp_host, smtp_port, smtp_user, smtp_pass_enc,
-		       smtp_tls, smtp_starttls, email_from, email_from_name
+		       smtp_tls, smtp_starttls, email_from, email_from_name,
+		       email_verified_at, email_last_error
 		FROM server_settings WHERE id = 1`).
-		Scan(&host, &port, &user, &passEnc, &smtpTLS, &startTLS, &from, &fromName)
+		Scan(&host, &port, &user, &passEnc, &smtpTLS, &startTLS, &from, &fromName,
+			&verifiedAt, &lastError)
 	if err == sql.ErrNoRows || host == "" {
 		return nil, nil
 	}
@@ -62,28 +65,48 @@ func (h *Handler) GetEmailSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
 	}
-	var host, port, user, passEnc, from, fromName string
+	var host, port, user, passEnc, from, fromName, verifiedAt, lastError string
 	var smtpTLS, startTLS int
 	err := h.db.QueryRowContext(r.Context(), `
 		SELECT smtp_host, smtp_port, smtp_user, smtp_pass_enc,
-		       smtp_tls, smtp_starttls, email_from, email_from_name
+		       smtp_tls, smtp_starttls, email_from, email_from_name,
+		       email_verified_at, email_last_error
 		FROM server_settings WHERE id = 1`).
-		Scan(&host, &port, &user, &passEnc, &smtpTLS, &startTLS, &from, &fromName)
+		Scan(&host, &port, &user, &passEnc, &smtpTLS, &startTLS, &from, &fromName,
+			&verifiedAt, &lastError)
 	if err != nil && err != sql.ErrNoRows {
 		h.logger.ErrorContext(r.Context(), "email settings: query", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	provider := "smtp"
+	if strings.EqualFold(host, "smtp.resend.com") {
+		provider = "resend"
+	}
+	var lastDeliveryStatus, lastDeliveryAt string
+	lastDeliveryErr := h.db.QueryRowContext(r.Context(), `
+		SELECT status, updated_at FROM email_deliveries ORDER BY created_at DESC LIMIT 1`).
+		Scan(&lastDeliveryStatus, &lastDeliveryAt)
+	if lastDeliveryErr != nil && lastDeliveryErr != sql.ErrNoRows {
+		h.logger.WarnContext(r.Context(), "email settings: load delivery status", "error", lastDeliveryErr)
+	}
+
 	h.writeJSON(w, http.StatusOK, map[string]any{
-		"smtp_host":       host,
-		"smtp_port":       port,
-		"smtp_user":       user,
-		"smtp_pass_set":   passEnc != "",
-		"smtp_tls":        smtpTLS != 0,
-		"smtp_starttls":   startTLS != 0,
-		"email_from":      from,
-		"email_from_name": fromName,
-		"enabled":         h.isEmailEnabled(),
+		"smtp_host":              host,
+		"smtp_port":              port,
+		"smtp_user":              user,
+		"smtp_pass_set":          passEnc != "",
+		"smtp_tls":               smtpTLS != 0,
+		"smtp_starttls":          startTLS != 0,
+		"email_from":             from,
+		"email_from_name":        fromName,
+		"enabled":                h.isEmailEnabled(),
+		"provider":               provider,
+		"managed_by_environment": h.emailEnvManaged,
+		"verified":               verifiedAt != "" && lastError == "",
+		"verified_at":            verifiedAt,
+		"last_delivery_status":   lastDeliveryStatus,
+		"last_delivery_at":       lastDeliveryAt,
 	})
 }
 
@@ -96,6 +119,10 @@ func (h *Handler) PatchEmailSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.demoMode {
 		h.writeError(w, http.StatusServiceUnavailable, "not available in the demo")
+		return
+	}
+	if h.emailEnvManaged {
+		h.writeError(w, http.StatusConflict, "Email settings are managed by the deployment environment")
 		return
 	}
 
@@ -124,7 +151,7 @@ func (h *Handler) PatchEmailSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.EmailFromName == "" {
-		req.EmailFromName = "Calnode"
+		req.EmailFromName = "Bonnie"
 	}
 
 	boolToInt := func(b bool) int {
@@ -146,6 +173,7 @@ func (h *Handler) PatchEmailSettings(w http.ResponseWriter, r *http.Request) {
 			  smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass_enc = ?,
 			  smtp_tls = ?, smtp_starttls = ?,
 			  email_from = ?, email_from_name = ?,
+			  email_verified_at = '', email_last_error = '',
 			  updated_at = datetime('now')
 			WHERE id = 1`,
 			req.SMTPHost, req.SMTPPort, req.SMTPUser, enc,
@@ -162,6 +190,7 @@ func (h *Handler) PatchEmailSettings(w http.ResponseWriter, r *http.Request) {
 			  smtp_host = ?, smtp_port = ?, smtp_user = ?,
 			  smtp_tls = ?, smtp_starttls = ?,
 			  email_from = ?, email_from_name = ?,
+			  email_verified_at = '', email_last_error = '',
 			  updated_at = datetime('now')
 			WHERE id = 1`,
 			req.SMTPHost, req.SMTPPort, req.SMTPUser,
@@ -221,14 +250,31 @@ func (h *Handler) TestEmailConnection(w http.ResponseWriter, r *http.Request) {
 			"Email is not configured — save SMTP settings first")
 		return
 	}
-	if err := h.mailer.Send(r.Context(), mailer.Message{
+	tester := h.mailer
+	if h.live != nil {
+		tester = h.live
+	}
+	if err := tester.Send(r.Context(), mailer.Message{
 		To:      []string{user.Email},
-		Subject: "[TEST] Calnode email configuration",
-		Text:    "This is a test email from Calnode. If you received this, your SMTP settings are working correctly.",
+		Subject: "[TEST] Bonnie email configuration",
+		Text:    "This is a test email from Bonnie. If you received this, your SMTP settings are working correctly.",
 	}); err != nil {
 		h.logger.ErrorContext(r.Context(), "email connection test: send", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "failed to send test email")
+		if _, updateErr := h.db.ExecContext(r.Context(), `
+			UPDATE server_settings SET email_verified_at = '',
+			  email_last_error = 'delivery test failed', updated_at = datetime('now')
+			WHERE id = 1`); updateErr != nil {
+			h.logger.WarnContext(r.Context(), "email connection test: record failure", "error", updateErr)
+		}
+		h.writeError(w, http.StatusBadGateway, "Email provider rejected the test message")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]any{"sent": true, "to": user.Email})
+	if _, err := h.db.ExecContext(r.Context(), `
+		UPDATE server_settings SET email_verified_at = datetime('now'),
+		  email_last_error = '', updated_at = datetime('now') WHERE id = 1`); err != nil {
+		h.logger.ErrorContext(r.Context(), "email connection test: record success", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "test message sent but verification state could not be saved")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{"sent": true, "verified": true, "to": user.Email})
 }

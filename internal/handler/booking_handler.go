@@ -530,11 +530,13 @@ type bookingJSON struct {
 	Status             string         `json:"status"`
 	CancellationReason string         `json:"cancellation_reason,omitempty"`
 	LocationValue      string         `json:"location_value,omitempty"`
+	Timezone           string         `json:"timezone,omitempty"`
 	CreatedAt          string         `json:"created_at"`
 	UpdatedAt          string         `json:"updated_at"`
 	PaymentStatus      string         `json:"payment_status,omitempty" jsonschema:"payment state for paid event types: paid, refunded, or pending; absent for free bookings"`
 	AmountPaidCents    int            `json:"amount_paid_cents,omitempty" jsonschema:"amount charged in minor units (e.g. cents); absent for free bookings"`
 	AmountPaidCurrency string         `json:"amount_paid_currency,omitempty" jsonschema:"ISO 4217 currency of the charge (lowercase)"`
+	CorrelationRef     string         `json:"correlation_ref,omitempty" jsonschema:"opaque non-authorizing reusable-link correlation ref; absent when the booker did not arrive through a Bonnie correlation link"`
 	Attendees          []attendeeJSON `json:"attendees,omitempty"`
 	Hosts              []hostBrief    `json:"hosts,omitempty"` // assigned host(s) for display; set on the public create response
 }
@@ -556,8 +558,9 @@ func toBookingJSON(b *booking.Booking) bookingJSON {
 		Status:             b.Status,
 		CancellationReason: b.CancellationReason,
 		LocationValue:      b.LocationValue,
-		CreatedAt:          b.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:          b.UpdatedAt.UTC().Format(time.RFC3339),
+		Timezone:           b.Timezone,
+		CreatedAt:          b.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:          b.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	// Payment fields are omitted for free bookings (payment_status defaults to 'none').
 	if b.PaymentStatus != "" && b.PaymentStatus != "none" {
@@ -565,7 +568,16 @@ func toBookingJSON(b *booking.Booking) bookingJSON {
 		j.AmountPaidCents = b.AmountPaidCents
 		j.AmountPaidCurrency = b.AmountPaidCurrency
 	}
+	j.CorrelationRef = b.CorrelationRef
 	return j
+}
+
+func (h *Handler) toBookingJSONWithEventTypeSlug(ctx context.Context, b *booking.Booking) (bookingJSON, error) {
+	result := toBookingJSON(b)
+	if err := h.db.QueryRowContext(ctx, `SELECT slug FROM event_types WHERE id = ?`, b.EventTypeID).Scan(&result.EventTypeSlug); err != nil {
+		return bookingJSON{}, fmt.Errorf("load booking event type slug: %w", err)
+	}
+	return result, nil
 }
 
 // noConnectedDestination reports whether the given host has no connected destination
@@ -613,13 +625,14 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		EventTypeSlug string `json:"event_type_slug"`
-		StartAt       string `json:"start_at"`
-		Name          string `json:"name"`
-		Email         string `json:"email"`
-		Timezone      string `json:"timezone"`
-		Company       string `json:"company"` // honeypot: a hidden form field; must stay empty
-		Answers       []struct {
+		EventTypeSlug  string `json:"event_type_slug"`
+		StartAt        string `json:"start_at"`
+		Name           string `json:"name"`
+		Email          string `json:"email"`
+		Timezone       string `json:"timezone"`
+		Company        string `json:"company"` // honeypot: a hidden form field; must stay empty
+		CorrelationRef string `json:"correlation_ref"`
+		Answers        []struct {
 			QuestionID string `json:"question_id"`
 			Value      string `json:"value"`
 		} `json:"answers"`
@@ -688,6 +701,15 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	if req.Timezone == "" {
 		req.Timezone = "UTC"
 	}
+
+	// Reusable-link correlation: the fragment ref is opaque and non-authorizing.
+	// An absent/unknown/duplicate/malformed value never blocks the provider
+	// booking — it simply cannot correlate to a canonical Meeting.
+	correlationRef := strings.TrimSpace(req.CorrelationRef)
+	if correlationRef != "" && !validCorrelationRef(correlationRef) {
+		correlationRef = ""
+	}
+	_ = correlationRef // passed to CreateParams below
 
 	startAt, err := time.Parse(time.RFC3339, req.StartAt)
 	if err != nil {
@@ -771,6 +793,7 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		},
 		Answers:             answers,
 		MaxActivePerInvitee: et.MaxActiveBookings,
+		CorrelationRef:      correlationRef,
 	})
 	if err != nil {
 		if errors.Is(err, booking.ErrDoubleBooked) {
@@ -876,6 +899,7 @@ type bookingConfirmationInput struct {
 	OrganizerName     string
 	OrganizerEmail    string
 	OrganizerTimezone string
+	Participants      []booking.Attendee
 }
 
 // hostPrefsOrDefault loads a host's notification prefs, defaulting to allOnPrefs and
@@ -916,8 +940,8 @@ func (h *Handler) hostBookingData(ctx context.Context, base mailer.BookingData, 
 func (h *Handler) mintMeetingLink(ctx context.Context, b *booking.Booking, in bookingConfirmationInput, bData *mailer.BookingData, hosts []assignedHost) (meetURL string, autoGenMeet bool, livekitHostURL string) {
 	gc := h.getCal()
 	if gc != nil && onlineMeetingLocation(in.LocationType) {
-		if _, primaryProvider, perr := gc.Connected(ctx, primaryHost(hosts).UserID); perr == nil {
-			autoGenMeet = providerMintsPlatform(in.LocationType, primaryProvider)
+		if capable, perr := gc.CanAutoGenerate(ctx, primaryHost(hosts).UserID, in.LocationType); perr == nil {
+			autoGenMeet = capable
 		} else {
 			h.logger.Error("booking confirmation: primary host provider lookup", "error", perr, "booking_id", b.ID)
 		}
@@ -999,15 +1023,21 @@ func (h *Handler) createHostEventsAndNotify(ctx context.Context, b *booking.Book
 		// the per-host event ID so it can be cancelled later. The primary's id
 		// also lives on the booking row for back-compat.
 		if gc != nil {
+			additionalAttendees := make([]calendar.EventAttendee, 0, len(in.Participants))
+			for _, participant := range in.Participants {
+				additionalAttendees = append(additionalAttendees, calendar.EventAttendee{Name: participant.Name, Email: participant.Email})
+			}
 			eventID, link, err := gc.CreateEvent(ctx, host.UserID, calendar.CreateEventParams{
-				Summary:        in.EventTypeName + " with " + in.OrganizerName,
-				Description:    "Booking ID: " + b.ID,
-				Location:       meetURL, // empty until the primary creates it; secondary hosts get the link
-				Start:          b.StartAt,
-				End:            b.EndAt,
-				OrganizerName:  in.OrganizerName,
-				OrganizerEmail: in.OrganizerEmail,
-				AddMeet:        autoGenMeet && host.IsPrimary,
+				Summary:            in.EventTypeName + " with " + in.OrganizerName,
+				Description:        "Booking ID: " + b.ID,
+				Location:           meetURL, // empty until the primary creates it; secondary hosts get the link
+				Start:              b.StartAt,
+				End:                b.EndAt,
+				OrganizerName:      in.OrganizerName,
+				OrganizerEmail:     in.OrganizerEmail,
+				Attendees:          additionalAttendees,
+				AddMeet:            autoGenMeet && host.IsPrimary,
+				StableOperationKey: "bk:" + b.ID + ":" + host.UserID,
 			})
 			if err != nil {
 				h.logger.Error("create gcal event", "error", err, "booking_id", b.ID, "host", host.UserID)
@@ -1128,6 +1158,7 @@ func (h *Handler) dispatchBookingConfirmation(b *booking.Booking, in bookingConf
 			PaymentStatus:      paymentStatusForWebhook(b.PaymentStatus),
 			AmountPaidCents:    b.AmountPaidCents,
 			AmountPaidCurrency: b.AmountPaidCurrency,
+			CorrelationRef:     b.CorrelationRef,
 		}); err != nil {
 			h.logger.Error("enqueue booking.created webhook", "error", err, "booking_id", b.ID)
 		}
@@ -1137,8 +1168,9 @@ func (h *Handler) dispatchBookingConfirmation(b *booking.Booking, in bookingConf
 	}
 }
 
-// GetBooking handles GET /v1/bookings/{id} (public — accessible with just the booking ID).
+// GetBooking handles authenticated GET /v1/bookings/{id}.
 func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
+	user, authenticated := userFromContext(r.Context())
 	id := r.PathValue("id")
 	b, err := h.bookingSvc.Get(r.Context(), id)
 	if err != nil {
@@ -1150,7 +1182,17 @@ func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, toBookingJSON(b))
+	if authenticated && !user.IsAdmin && b.HostID != user.ID {
+		h.writeError(w, http.StatusNotFound, "booking not found")
+		return
+	}
+	response, err := h.toBookingJSONWithEventTypeSlug(r.Context(), b)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "get booking event type", "error", err, "booking_id", b.ID)
+		h.writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // ListBookings handles GET /v1/bookings (admin — lists bookings for the current user).
@@ -1246,10 +1288,11 @@ func (h *Handler) ListBookings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fetch organizer attendee for each booking.
+	// Fetch every attendee for each booking. Public/widget bookings still contain
+	// one organizer; managed direct bookings may contain multiple participants.
 	aRows, err := h.db.QueryContext(r.Context(), // #nosec G701 -- ph is a fixed string of "?," placeholders (strings.Repeat above); every value is bound via ids..., never concatenated into the SQL text
 		`SELECT booking_id, name, email FROM booking_attendees
-		 WHERE booking_id IN (`+ph+`) AND is_organizer = 1`, ids...) // #nosec G202 -- ph is a fixed string of "?," placeholders (strings.Repeat above); every value is bound via ids..., never concatenated into the SQL text
+		 WHERE booking_id IN (`+ph+`) ORDER BY is_organizer DESC, id`, ids...) // #nosec G202 -- ph is a fixed string of "?," placeholders (strings.Repeat above); every value is bound via ids..., never concatenated into the SQL text
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "list bookings: attendees", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")
@@ -1653,6 +1696,21 @@ func (h *Handler) loadHostPrefs(ctx context.Context, hostID string) (hostPrefs, 
 // isForeignKeyViolation reports whether err is a SQLite FOREIGN KEY constraint failure.
 func isForeignKeyViolation(err error) bool {
 	return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
+}
+
+// validCorrelationRef validates the opaque reusable-link correlation ref shape:
+// 16-64 chars of [A-Za-z0-9_-]. Absent/invalid values are dropped by the caller
+// and never fail the provider booking.
+func validCorrelationRef(ref string) bool {
+	if len(ref) < 16 || len(ref) > maxCorrelationLen {
+		return false
+	}
+	for _, c := range ref {
+		if !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '_' && c != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // enqueueReminder inserts a reminder.send job scheduled hoursBefore hours before startAt.

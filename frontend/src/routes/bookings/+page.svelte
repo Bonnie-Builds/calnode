@@ -185,7 +185,7 @@
 	}
 </script>
 
-<svelte:head><title>Bookings — Calnode</title></svelte:head>
+<svelte:head><title>Bookings — Bonnie</title></svelte:head>
 
 <div class="mb-8 flex items-start justify-between gap-4">
 	<div>

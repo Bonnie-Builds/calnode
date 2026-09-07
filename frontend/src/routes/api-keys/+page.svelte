@@ -6,6 +6,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { currentUser } from '$lib/stores';
 
 	let items: APIKey[] = $state([]);
 	let loading = $state(true);
@@ -81,16 +82,18 @@
 	onConfirm={doRevoke}
 />
 
-<svelte:head><title>API Keys — Calnode</title></svelte:head>
+<svelte:head><title>API Keys — Bonnie</title></svelte:head>
 
 <div class="mb-8 flex items-center justify-between">
 	<div>
 		<h1 class="text-2xl font-semibold tracking-tight">API Keys</h1>
 		<p class="mt-1 text-sm text-muted-foreground">Authenticate CLI tools and integrations.</p>
 	</div>
-	<Button onclick={() => { showCreate = !showCreate; createError = ''; newKey = ''; }}>
-		{showCreate ? 'Cancel' : 'New key'}
-	</Button>
+	{#if !$currentUser?.is_managed_member}
+		<Button onclick={() => { showCreate = !showCreate; createError = ''; newKey = ''; }}>
+			{showCreate ? 'Cancel' : 'New key'}
+		</Button>
+	{/if}
 </div>
 
 {#if newKey}
@@ -103,7 +106,7 @@
 	</div>
 {/if}
 
-{#if showCreate}
+{#if showCreate && !$currentUser?.is_managed_member}
 	<div class="mb-6 rounded-lg border bg-card p-6">
 		<h2 class="mb-4 text-sm font-semibold">New API key</h2>
 		{#if createError}<p class="mb-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{createError}</p>{/if}
@@ -128,7 +131,7 @@
 {:else if items.length === 0}
 	<div class="rounded-lg border border-dashed bg-card p-12 text-center">
 		<p class="text-sm font-medium">No API keys</p>
-		<p class="mt-1 text-sm text-muted-foreground">Create a key to authenticate CLI tools and integrations.</p>
+		<p class="mt-1 text-sm text-muted-foreground">{$currentUser?.is_managed_member ? 'No personal API keys are active.' : 'Create a key to authenticate CLI tools and integrations.'}</p>
 	</div>
 {:else}
 	<div class="rounded-lg border bg-card overflow-hidden">

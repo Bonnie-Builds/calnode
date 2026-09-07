@@ -282,7 +282,7 @@
 	onConfirm={doDeleteGroup}
 />
 
-<svelte:head><title>Availability — Calnode</title></svelte:head>
+<svelte:head><title>Availability — Bonnie</title></svelte:head>
 
 <div class="mb-8">
 	<h1 class="text-2xl font-semibold tracking-tight">Availability</h1>

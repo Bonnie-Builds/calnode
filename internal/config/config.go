@@ -18,18 +18,23 @@ type Config struct {
 	LogLevel       slog.Level
 
 	// Email / SMTP
-	SMTPHost      string
-	SMTPPort      string
-	SMTPUser      string
-	SMTPPass      string
-	SMTPTLS       bool // implicit TLS (port 465)
-	SMTPStartTLS  bool // STARTTLS (port 587)
-	EmailFrom     string
-	EmailFromName string
+	SMTPHost          string
+	SMTPPort          string
+	SMTPUser          string
+	SMTPPass          string
+	SMTPTLS           bool // implicit TLS (port 465)
+	SMTPStartTLS      bool // STARTTLS (port 587)
+	EmailFrom         string
+	EmailFromName     string
+	EmailProvider     string // "resend" for the deployment preset; otherwise "smtp"
+	EmailManagedByEnv bool   // true when deployment env owns email configuration
 
 	// Google OAuth (calendar + sign-in)
 	GoogleClientID     string
 	GoogleClientSecret string
+	// BonnieManagedMode disables Calnode's browser calendar-consent flow and
+	// enables Bonnie-managed identity and scheduling surfaces.
+	BonnieManagedMode bool
 
 	// Microsoft 365 / Outlook (calendar) — env-only; tenant defaults to "common".
 	MicrosoftClientID     string
@@ -61,22 +66,89 @@ type Config struct {
 	// DemoResetInterval is how often DemoMode wipes and re-seeds the DB. Configurable
 	// (not hardcoded to 30m) so local verification doesn't require waiting half an hour.
 	DemoResetInterval time.Duration
+
+	// Bonnie-managed identity contract (BONNIE_MANAGED_MODE).
+	//
+	BonnieManagedIssuer string
+	// BonnieManagedCompany is the exact canonical Bonnie company ref accepted in the assertion.
+	BonnieManagedCompany string
+	// BonnieManagedJWKSURL is a URL the fork fetches to obtain Bonnie's versioned
+	// public JWKS (Ed25519 verification keys). Mutually exclusive with a static
+	// inline document.
+	BonnieManagedJWKSURL string
+	// BonnieManagedJWKS is an inline JSON JWKS document (public keys only).
+	BonnieManagedJWKS string
+	// BonnieManagedAllowedKids is the allowlist of accepted `kid` values (comma-separated).
+	BonnieManagedAllowedKids []string
+	// BonnieManagedOperatorKey is the secret shared with Bonbon's operator for the
+	// managed member ensure/archive/reactivate endpoints. Never an API key or session.
+	BonnieManagedOperatorKey string
+	// BonnieManagedEntryPath is the allowlisted 303 target after a successful exchange.
+	BonnieManagedEntryPath string
+	// BonnieManagedLoginRedirect is where an unauthenticated managed-mode browser is
+	// sent when it reaches the scheduler root without a session.
+	BonnieManagedLoginRedirect string
+	// BonnieManagedSessionTTL bounds managed browser sessions (default 1h).
+	BonnieManagedSessionTTL time.Duration
+	// BonnieManagedSiteDomain is the deployment-owned registrable site suffix
+	// shared by Bonnie and this Calnode instance (for example, example.com).
+	BonnieManagedSiteDomain string
+	// BonnieManagedBookingFrameAncestors is the exact comma-separated Bonnie app
+	// origin allowlist for public booking pages. Empty keeps booking-page framing
+	// disabled and preserves the default DENY policy.
+	BonnieManagedBookingFrameAncestors []string
+
+	// Bonbon custody transport (Phase 3): when CustodyTransportURL is set, the
+	// Google calendar effects ride Bonbon's operation-shaped custody boundary
+	// instead of direct Google API calls. No credential material or
+	// credential-kind selection ever passes through Calnode.
+	CustodyTransportURL string
+	// CustodyCompanyRef defaults to BonnieManagedCompany (the canonical company ref).
+	CustodyCompanyRef string
+	// CustodyInstanceRef pins this deployment's instance reference (required with a URL).
+	CustodyInstanceRef string
+	// CustodyAuthHeader is optional deployment-boundary caller auth (NOT a calendar credential).
+	CustodyAuthHeader string
 }
 
 func Load() *Config {
+	resendKey := strings.TrimSpace(os.Getenv("RESEND_API_KEY"))
+	smtpHost := getEnv("EMAIL_SMTP_HOST", "")
+	smtpPort := getEnv("EMAIL_SMTP_PORT", "587")
+	smtpUser := getEnv("EMAIL_SMTP_USER", "")
+	smtpPass := getEnv("EMAIL_SMTP_PASS", "")
+	smtpTLS := getBool("EMAIL_SMTP_TLS", false)
+	smtpStartTLS := getBool("EMAIL_SMTP_STARTTLS", false)
+	emailProvider := "smtp"
+	emailManagedByEnv := smtpHost != ""
+	if smtpHost == "" && resendKey != "" {
+		smtpHost = "smtp.resend.com"
+		smtpPort = "587"
+		smtpUser = "resend"
+		smtpPass = resendKey
+		smtpTLS = false
+		smtpStartTLS = true
+		emailProvider = "resend"
+		emailManagedByEnv = true
+	} else if strings.EqualFold(smtpHost, "smtp.resend.com") {
+		emailProvider = "resend"
+	}
+
 	cfg := &Config{
 		Port:        getEnv("PORT", "3000"),
 		DatabaseURL: getEnv("DATABASE_URL", "sqlite://./data/calnode.db"),
 		BaseURL:     getEnv("BASE_URL", "http://localhost:3000"),
 
-		SMTPHost:      getEnv("EMAIL_SMTP_HOST", ""),
-		SMTPPort:      getEnv("EMAIL_SMTP_PORT", "587"),
-		SMTPUser:      getEnv("EMAIL_SMTP_USER", ""),
-		SMTPPass:      getEnv("EMAIL_SMTP_PASS", ""),
-		SMTPTLS:       getBool("EMAIL_SMTP_TLS", false),
-		SMTPStartTLS:  getBool("EMAIL_SMTP_STARTTLS", false),
-		EmailFrom:     getEnv("EMAIL_FROM_ADDRESS", "bookings@localhost"),
-		EmailFromName: getEnv("EMAIL_FROM_NAME", "Calnode"),
+		SMTPHost:          smtpHost,
+		SMTPPort:          smtpPort,
+		SMTPUser:          smtpUser,
+		SMTPPass:          smtpPass,
+		SMTPTLS:           smtpTLS,
+		SMTPStartTLS:      smtpStartTLS,
+		EmailFrom:         getEnv("EMAIL_FROM_ADDRESS", "bookings@localhost"),
+		EmailFromName:     getEnv("EMAIL_FROM_NAME", "Bonnie"),
+		EmailProvider:     emailProvider,
+		EmailManagedByEnv: emailManagedByEnv,
 
 		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
@@ -99,6 +171,25 @@ func Load() *Config {
 	cfg.LogLevel = parseLogLevel(getEnv("LOG_LEVEL", "info"))
 	cfg.CookieSecure = getBool("COOKIE_SECURE", strings.HasPrefix(cfg.BaseURL, "https://"))
 	cfg.DemoMode = getBool("DEMO_MODE", false)
+	cfg.BonnieManagedMode = getBool("BONNIE_MANAGED_MODE", false)
+	cfg.BonnieManagedIssuer = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_ISSUER"))
+	cfg.BonnieManagedCompany = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_COMPANY"))
+	cfg.BonnieManagedJWKSURL = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_JWKS_URL"))
+	cfg.BonnieManagedJWKS = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_JWKS"))
+	cfg.BonnieManagedAllowedKids = splitCSV(os.Getenv("BONNIE_MANAGED_ALLOWED_KIDS"))
+	cfg.BonnieManagedOperatorKey = os.Getenv("BONNIE_MANAGED_OPERATOR_KEY")
+	cfg.BonnieManagedEntryPath = getEnv("BONNIE_MANAGED_ENTRY_PATH", "/")
+	cfg.BonnieManagedLoginRedirect = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_LOGIN_REDIRECT"))
+	cfg.BonnieManagedSessionTTL = getDuration("BONNIE_MANAGED_SESSION_TTL", time.Hour)
+	cfg.BonnieManagedSiteDomain = strings.ToLower(strings.TrimSpace(os.Getenv("BONNIE_MANAGED_SITE_DOMAIN")))
+	cfg.BonnieManagedBookingFrameAncestors = splitCSV(os.Getenv("BONNIE_MANAGED_BOOKING_FRAME_ANCESTORS"))
+	cfg.CustodyTransportURL = strings.TrimSpace(os.Getenv("BONNIE_CUSTODY_TRANSPORT_URL"))
+	cfg.CustodyCompanyRef = strings.TrimSpace(os.Getenv("BONNIE_CUSTODY_COMPANY_REF"))
+	cfg.CustodyInstanceRef = strings.TrimSpace(os.Getenv("BONNIE_CUSTODY_INSTANCE_REF"))
+	if cfg.CustodyCompanyRef == "" {
+		cfg.CustodyCompanyRef = cfg.BonnieManagedCompany
+	}
+	cfg.CustodyAuthHeader = os.Getenv("BONNIE_CUSTODY_AUTH_HEADER")
 	cfg.DemoResetInterval = getDuration("DEMO_RESET_INTERVAL", 30*time.Minute)
 
 	return cfg

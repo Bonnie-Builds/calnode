@@ -51,6 +51,7 @@ app you must `pnpm build` in `frontend/` **and** rebuild/restart the Go binary
   - `PUBLIC_BASE_URL` — booker-facing host (booking links, emails); defaults to BASE_URL. The split lets a tenant put the team on a custom domain (`book.acme.com`) while OAuth/admin stay on the identity host (see §16).
   - `CALNODE_ENCRYPTION_KEY` (platform secret / KEK input), `CALNODE_RECOVERY_SECRET` (escrow)
   - `SMTP_*` and `GOOGLE_CLIENT_ID/SECRET` (also settable at runtime in DB settings, which take priority)
+  - `BONNIE_MANAGED_MODE` (optional; enables Bonnie-managed identity, members, and booking surfaces; provider OAuth stays in Calnode)
   - `MICROSOFT_CLIENT_ID/SECRET` and `MICROSOFT_TENANT` (default `common`; use the
     multi-tenant `common` so any work/personal Microsoft account can connect/sign in)
   - `COOKIE_SECURE` (defaults true when BASE_URL is https)
@@ -105,6 +106,16 @@ partial unique index covers) — no TOCTOU between concurrent bookings.
   (the host-roles table), `event_type_questions` (intake form),
   `event_type_reminders` (per-ET `hours_before`, UNIQUE).
 - **Availability:** `availability_rules` (weekly), `availability_overrides` (dated).
+  Bonnie's exact-member `POST /v1/calendar/managed-availability` uses the same
+  short-lived, one-time managed assertion as the calendar workspace read. It
+  returns only the member's global weekly rules, IANA timezone and a content
+  revision. An optional update atomically replaces those global rules and the
+  timezone after checking the observed revision; stale edits return 409. The
+  request never accepts a user, company, event-type or credential selector.
+  Date overrides and event-specific rules remain intact. At most 28 weekly
+  blocks are accepted, with valid HH:MM ranges and no overlap. Empty rules stay
+  empty: no default working hours are provisioned. Candidate slot generation
+  and booking validation continue reading the existing authoritative tables.
 - **Bookings:** `bookings` (primary `host_id`, `external_event_id`, status),
   `booking_hosts` (every attending host + `is_primary` + per-host
   `external_event_id`), `booking_attendees` (organizer + invitees),
@@ -349,6 +360,15 @@ Calnode talks to calendars through a **provider abstraction**, not a single vend
   oauth2 `TokenSource` wrapped by a `savingTokenSource` that persists refreshed
   tokens (and preserves `account_kind`, which a refresh has no id_token to re-derive).
 
+**Bonnie-managed identity with Bonbon-owned provider custody.** With
+`BONNIE_MANAGED_MODE=true`, Bonnie supplies the company/member identity assertion
+that creates the Calnode member, while Bonbon authorization remains the sole
+owner of Google consent and credentials. Calnode stores only member and
+scheduling state. Its Google adapter sends bounded, idempotent calendar effects
+and provider observations through the configured custody transport; provider
+tokens never enter Calnode. A managed member's email is the logical destination,
+so readiness and write routing do not require a local `calendar_connections` row.
+
 **Per-provider notes.**
 - *Google* (`internal/gcal`): Meet via `conferenceData.createRequest` +
   `conferenceDataVersion=1` (returns `hangoutLink`); `CancelEvent` treats 410 Gone as
@@ -363,15 +383,19 @@ Calnode talks to calendars through a **provider abstraction**, not a single vend
 
 **Online-meeting links are provider-matched (`booking_handler.go`).** A
 `google_meet`/`teams` event type auto-mints a link **only when the primary host's
-connected provider natively matches the platform** — Meet↔Google, Teams↔work-Microsoft
-(`Service.CanAutoGenerate`; personal Microsoft can't mint Teams). When it can't, we
+destination provider natively matches the platform** — Meet↔Google, Teams↔work-Microsoft
+(`Service.CanAutoGenerate`; personal Microsoft can't mint Teams). A Bonbon-custodied
+logical destination participates in the same capability check. When it can't, we
 **never fabricate a link of the wrong kind** — the organizer's manually-entered
 `location_value` is used instead. The minted link is stored on
 `bookings.location_value`, surfaced in emails + the manage page, and passed as the
 location of secondary hosts' events. The reconciler's create path applies the same
 match rule; reschedule keeps the link (same event id), reassign carries the existing
 link to the new host. Created async, so the link lands in the email + booking record,
-not the instant 201.
+not the instant 201. Managed scheduling convergence uses
+`POST /v1/bookings/{id}/managed-provider-observation`: the exact member API key
+authorizes a bounded custody `event_get`, and the response exposes only event
+presence, booking status, join-URL presence/value, and observation time.
 
 **Save-time location validation (`event_type.go` + `validateLocation`).** A location
 type only saves with usable join info: Teams/Meet need an auto-capable connected

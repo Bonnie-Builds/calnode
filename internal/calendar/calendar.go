@@ -7,6 +7,7 @@ package calendar
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sort"
 	"time"
 
@@ -22,7 +23,36 @@ type CreateEventParams struct {
 	Start, End     time.Time
 	OrganizerName  string
 	OrganizerEmail string
+	Attendees      []EventAttendee
 	AddMeet        bool
+	// StableOperationKey identifies the logical create/upsert effect across
+	// retries (booking ID + host user). Direct providers ignore it; the
+	// Bonbon custody transport adapter requires it (fail-closed without one).
+	StableOperationKey string
+}
+
+// EventAttendee is an additional guest on the provider event. OrganizerName /
+// OrganizerEmail remain the primary invitee for Calnode's existing mail and
+// manage-link semantics.
+type EventAttendee struct {
+	Name  string
+	Email string
+}
+
+// ProviderEventObservation is an authoritative read-back of one event from the
+// destination provider. It intentionally exposes only the facts Calnode needs
+// to prove booking convergence; provider credentials and raw event data remain
+// behind the provider adapter.
+type ProviderEventObservation struct {
+	Present bool
+	JoinURL string
+}
+
+// ProviderEventObserver is implemented by destination providers that support
+// bounded authoritative event read-back. Managed booking flows require it
+// before they report provider convergence.
+type ProviderEventObserver interface {
+	ObserveEvent(ctx context.Context, userID, eventID, stableOperationKey string) (ProviderEventObservation, error)
 }
 
 // CalendarInfo is one calendar the provider exposes for a connected account.
@@ -64,6 +94,7 @@ type Provider interface {
 	FreeBusy(ctx context.Context, userID string, from, to time.Time) ([]slots.Interval, error)
 	CreateEvent(ctx context.Context, userID string, p CreateEventParams) (eventID, joinURL string, err error)
 	UpdateEvent(ctx context.Context, userID, eventID string, start, end time.Time) error
+	UpdateEventLocation(ctx context.Context, userID, eventID, location string) error
 	CancelEvent(ctx context.Context, userID, eventID string) error
 }
 
@@ -114,10 +145,20 @@ func (s *Service) ProviderNames() []string {
 func (s *Service) providerForDestination(ctx context.Context, userID string) Provider {
 	var name string
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT provider FROM calendar_connections WHERE user_id = ? AND is_destination = 1 LIMIT 1`, userID).Scan(&name); err != nil {
-		return nil
+		`SELECT provider FROM calendar_connections WHERE user_id = ? AND is_destination = 1 LIMIT 1`, userID).Scan(&name); err == nil {
+		return s.providers[name]
 	}
-	return s.providers[name]
+
+	// A managed provider can own the destination outside Calnode's database.
+	// This is how the Bonbon-custodied Google adapter remains credential-free:
+	// Calnode keeps only its managed member and scheduling state, while the
+	// provider decides whether that member has a usable logical destination.
+	for _, p := range s.providers {
+		if ok, err := p.HasDestination(ctx, userID); err == nil && ok {
+			return p
+		}
+	}
+	return nil
 }
 
 // Connected reports whether the user has any calendar connection, and which provider.
@@ -146,7 +187,12 @@ func (s *Service) CanAutoGenerate(ctx context.Context, userID, locType string) (
 		`SELECT provider, COALESCE(account_kind, '') FROM calendar_connections WHERE user_id = ? AND is_destination = 1 LIMIT 1`,
 		userID).Scan(&provider, &kind)
 	if err == sql.ErrNoRows {
-		return false, nil
+		if p := s.providerForDestination(ctx, userID); p != nil {
+			provider = p.Name()
+			err = nil
+		} else {
+			return false, nil
+		}
 	}
 	if err != nil {
 		return false, err
@@ -322,10 +368,35 @@ func (s *Service) UpdateEvent(ctx context.Context, userID, eventID string, start
 	return nil
 }
 
+// UpdateEventLocation changes only the external event location. It is used by
+// the managed Bonnie Room flow after the booking exists and therefore must not
+// move the event or mint a provider conference.
+func (s *Service) UpdateEventLocation(ctx context.Context, userID, eventID, location string) error {
+	if pr := s.providerForDestination(ctx, userID); pr != nil {
+		return pr.UpdateEventLocation(ctx, userID, eventID, location)
+	}
+	return nil
+}
+
 // CancelEvent deletes an event on the user's DESTINATION calendar.
 func (s *Service) CancelEvent(ctx context.Context, userID, eventID string) error {
 	if pr := s.providerForDestination(ctx, userID); pr != nil {
 		return pr.CancelEvent(ctx, userID, eventID)
 	}
 	return nil
+}
+
+// ObserveEvent reads one event from the user's destination provider. The
+// stable operation key belongs to the caller's reconcile attempt and lets a
+// custody-backed provider preserve idempotent read authority.
+func (s *Service) ObserveEvent(ctx context.Context, userID, eventID, stableOperationKey string) (ProviderEventObservation, error) {
+	pr := s.providerForDestination(ctx, userID)
+	if pr == nil {
+		return ProviderEventObservation{}, nil
+	}
+	observer, ok := pr.(ProviderEventObserver)
+	if !ok {
+		return ProviderEventObservation{}, errors.New("calendar: destination provider does not support event observation")
+	}
+	return observer.ObserveEvent(ctx, userID, eventID, stableOperationKey)
 }

@@ -55,6 +55,7 @@ const (
 	FieldPaymentStatus   = "payment_status"
 	FieldAmountPaid      = "amount_paid_cents"
 	FieldCurrency        = "amount_paid_currency"
+	FieldCorrelationRef  = "correlation_ref"
 )
 
 // AllFields is every selectable field, in payload order. Used to validate config
@@ -65,7 +66,7 @@ var AllFields = []string{
 	FieldEventTypeSlug, FieldEventTypeName,
 	FieldHostID, FieldHostName, FieldHostEmail,
 	FieldAttendeeName, FieldAttendeeEmail, FieldAttendeeTZ, FieldAnswers,
-	FieldPaymentStatus, FieldAmountPaid, FieldCurrency,
+	FieldPaymentStatus, FieldAmountPaid, FieldCurrency, FieldCorrelationRef,
 }
 
 // defaultFields reproduces the original payload (no PII, no answers) so a webhook with no
@@ -75,7 +76,7 @@ var defaultFields = []string{
 	FieldID, FieldEventTypeSlug, FieldHostID, FieldStartAt, FieldEndAt,
 	FieldStatus, FieldLocation, FieldCancelReason, FieldCreatedAt,
 	FieldPreviousStartAt, FieldPreviousEndAt,
-	FieldPaymentStatus, FieldAmountPaid, FieldCurrency,
+	FieldPaymentStatus, FieldAmountPaid, FieldCurrency, FieldCorrelationRef,
 }
 
 var validField = func() map[string]bool {
@@ -125,6 +126,9 @@ type BookingPayload struct {
 	PaymentStatus      string `json:"payment_status,omitempty"`
 	AmountPaidCents    int    `json:"amount_paid_cents,omitempty"`
 	AmountPaidCurrency string `json:"amount_paid_currency,omitempty"`
+	// CorrelationRef is the opaque, non-authorizing reusable-link fragment ref.
+	// Empty when the booker did not arrive through a Bonnie correlation link.
+	CorrelationRef string `json:"correlation_ref,omitempty"`
 }
 
 type Service struct {
@@ -189,6 +193,59 @@ func (s *Service) Create(ctx context.Context, userID, url string, events []strin
 		CreatedAt: time.Now().UTC(),
 	}
 	return wh, plainSecret, nil
+}
+
+// EnsureManaged creates or updates the single Bonnie-managed webhook owned by
+// userID. Its deterministic ID makes operator retries safe after a lost
+// response: the existing encrypted signing secret is returned instead of
+// creating a second active subscription.
+func (s *Service) EnsureManaged(ctx context.Context, userID, url string, events []string) (*Webhook, string, error) {
+	rawSecret := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, rawSecret); err != nil {
+		return nil, "", fmt.Errorf("webhook: generate managed secret: %w", err)
+	}
+	encSecret, err := s.encrypt(rawSecret)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: encrypt managed secret: %w", err)
+	}
+	eventsJSON, err := json.Marshal(events)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: marshal managed events: %w", err)
+	}
+
+	digest := sha256.Sum256([]byte("bonnie-managed-webhook\x00" + userID))
+	id := "bmw_" + hex.EncodeToString(digest[:16])
+	var storedSecret, createdAt string
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO webhooks (id, user_id, url, events, secret_enc)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			url = excluded.url,
+			events = excluded.events,
+			is_active = 1
+		WHERE webhooks.user_id = excluded.user_id
+		RETURNING secret_enc, created_at`,
+		id, userID, url, string(eventsJSON), encSecret).
+		Scan(&storedSecret, &createdAt)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: ensure managed: %w", err)
+	}
+	secret, err := s.decrypt(storedSecret)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: decrypt managed secret: %w", err)
+	}
+	created, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: parse managed created time: %w", err)
+	}
+	return &Webhook{
+		ID:        id,
+		UserID:    userID,
+		URL:       url,
+		Events:    events,
+		IsActive:  true,
+		CreatedAt: created,
+	}, hex.EncodeToString(secret), nil
 }
 
 // Update applies partial changes to a webhook owned by userID. Nil pointers are
@@ -346,6 +403,7 @@ func buildData(bd enrichedBooking, fields []string) map[string]any {
 		FieldPreviousEndAt:   bd.core.PreviousEndAt,
 		FieldPaymentStatus:   bd.core.PaymentStatus,
 		FieldCurrency:        bd.core.AmountPaidCurrency,
+		FieldCorrelationRef:  bd.core.CorrelationRef,
 	}
 	out := make(map[string]any, len(fields))
 	for _, f := range fields {

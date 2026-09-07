@@ -23,7 +23,7 @@
 	const visibleNavItems = $derived(navItems.filter((item) => !item.adminOnly || $currentUser?.is_admin));
 </script>
 
-<svelte:head><title>Settings — Calnode</title></svelte:head>
+<svelte:head><title>Settings — Bonnie</title></svelte:head>
 
 <div class="mb-8">
 	<h1 class="text-2xl font-semibold tracking-tight">Settings</h1>

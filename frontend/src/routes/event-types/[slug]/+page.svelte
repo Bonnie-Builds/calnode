@@ -23,7 +23,7 @@
 		{ value: 'zoom',         label: 'Zoom' },
 		{ value: 'teams',        label: 'Microsoft Teams' },
 		{ value: 'google_meet',  label: 'Google Meet' },
-		{ value: 'livekit',      label: 'Calnode Video (LiveKit)' },
+		{ value: 'livekit',      label: 'Bonnie Video (LiveKit)' },
 		{ value: 'phone',        label: 'Phone call' },
 		{ value: 'link',         label: 'Video link' },
 		{ value: 'in_person',    label: 'In person' },
@@ -385,13 +385,13 @@
 
 		switch (type) {
 			case 'confirmation':
-				return `Hi Alex Johnson,\n\nYour booking has been confirmed.\n\nEvent:    ${name}\nWith:     ${et?.name ?? 'Host'}\nStart:    ${start}\nEnd:      ${end}${loc}\n\nBooking reference: preview-test\n\nTo cancel, visit:\n[booking page]${noteBlk}\n— Calnode`;
+				return `Hi Alex Johnson,\n\nYour booking has been confirmed.\n\nEvent:    ${name}\nWith:     ${et?.name ?? 'Host'}\nStart:    ${start}\nEnd:      ${end}${loc}\n\nBooking reference: preview-test\n\nTo cancel, visit:\n[booking page]${noteBlk}\n— Bonnie`;
 			case 'cancellation':
-				return `Hi Alex Johnson,\n\nYour booking has been cancelled.\n\nEvent:    ${name}\nWith:     ${et?.name ?? 'Host'}\nStart:    ${start}\nEnd:      ${end}\n\nTo rebook, visit:\n[booking page]${noteBlk}\n— Calnode`;
+				return `Hi Alex Johnson,\n\nYour booking has been cancelled.\n\nEvent:    ${name}\nWith:     ${et?.name ?? 'Host'}\nStart:    ${start}\nEnd:      ${end}\n\nTo rebook, visit:\n[booking page]${noteBlk}\n— Bonnie`;
 			case 'reschedule':
-				return `Hi Alex Johnson,\n\nYour booking has been rescheduled.\n\nEvent:    ${name}\nWith:     ${et?.name ?? 'Host'}\nWas:      ${prev}\nNow:      ${start}\nEnd:      ${end}${loc}\n\nBooking reference: preview-test${noteBlk}\n— Calnode`;
+				return `Hi Alex Johnson,\n\nYour booking has been rescheduled.\n\nEvent:    ${name}\nWith:     ${et?.name ?? 'Host'}\nWas:      ${prev}\nNow:      ${start}\nEnd:      ${end}${loc}\n\nBooking reference: preview-test${noteBlk}\n— Bonnie`;
 			case 'reminder':
-				return `Hi Alex Johnson,\n\nThis is a reminder that your booking is coming up.\n\nEvent:    ${name}\nWith:     ${et?.name ?? 'Host'}\nStart:    ${start}\nEnd:      ${end}${loc}\n\nBooking reference: preview-test${noteBlk}\n— Calnode`;
+				return `Hi Alex Johnson,\n\nThis is a reminder that your booking is coming up.\n\nEvent:    ${name}\nWith:     ${et?.name ?? 'Host'}\nStart:    ${start}\nEnd:      ${end}${loc}\n\nBooking reference: preview-test${noteBlk}\n— Bonnie`;
 		}
 	}
 
@@ -446,7 +446,7 @@
 	</div>
 {/snippet}
 
-<svelte:head><title>{et?.name ?? slug} — Event Type — Calnode</title></svelte:head>
+<svelte:head><title>{et?.name ?? slug} — Event Type — Bonnie</title></svelte:head>
 <svelte:window onkeydown={saveOnCmdS(saveET, () => !etSaving)} />
 
 <div class="mb-8">

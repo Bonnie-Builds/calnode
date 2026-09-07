@@ -45,6 +45,7 @@ func (h *Handler) AuthStatus(w http.ResponseWriter, r *http.Request) {
 		"providers":       providers,
 		"smtp_configured": h.isEmailEnabled(),
 		"demo_mode":       h.demoMode,
+		"managed":         h.bonnieManagedMode,
 	}
 	if h.demoMode {
 		resp["next_reset_at"] = h.getDemoNextResetAt().UTC().Format(time.RFC3339)

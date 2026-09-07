@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +27,8 @@ type Handler struct {
 	bookingSvc        *booking.Service
 	mailer            mailer.Mailer
 	live              *mailer.Live // non-nil in production; nil in tests using a direct stub
-	encKey            [32]byte     // AES-256 key for encrypting secrets stored in the DB
+	emailEnvManaged   bool
+	encKey            [32]byte // AES-256 key for encrypting secrets stored in the DB
 	calMu             sync.RWMutex
 	cal               *calendar.Service
 	calNudge          chan struct{} // buffered(1): wakes the calendar reconciler after a failed inline op
@@ -47,9 +49,14 @@ type Handler struct {
 	livekitMu         sync.RWMutex
 	livekit           *livekit.Client // nil when LiveKit video is unconfigured
 	demoMode          bool            // true on the public demo instance: disables calendar/Zoom connect
+	bonnieManagedMode bool            // true when Bonbon owns Google consent and provider credentials
 	demoResetInterval time.Duration
 	demoMu            sync.RWMutex
 	demoNextResetAt   time.Time
+
+	managedMu       sync.RWMutex
+	managedIdentity managedIdentityConfig
+	managedJWKS     *jwksSet // parsed verification keys; nil until configured
 }
 
 // SetLiveKit swaps the active LiveKit client (nil disables built-in video rooms).
@@ -143,6 +150,18 @@ func (h *Handler) SetMailer(m mailer.Mailer, baseURL string) {
 	}
 }
 
+// SetMailTransport stores the hot-swappable provider transport used by the
+// durable worker and by explicit live connection tests.
+func (h *Handler) SetMailTransport(live *mailer.Live) {
+	h.live = live
+}
+
+// SetEmailEnvironmentManaged prevents the admin UI from pretending it can
+// override deployment-owned credentials that will win again on restart.
+func (h *Handler) SetEmailEnvironmentManaged(managed bool) {
+	h.emailEnvManaged = managed
+}
+
 // SetEncKey stores the AES-256 encryption key used for secrets in the DB.
 func (h *Handler) SetEncKey(hexKey string) {
 	if b, err := hex.DecodeString(hexKey); err == nil && len(b) == 32 {
@@ -182,6 +201,36 @@ func (h *Handler) SetDataDir(dir string) {
 // GET /v1/auth/status. Never set this on a real deployment.
 func (h *Handler) SetDemoMode(v bool) {
 	h.demoMode = v
+}
+
+// SetBonnieManagedMode makes Bonbon authorization the only Google-consent and
+// credential surface. Calnode retains only managed member and scheduling state.
+func (h *Handler) SetBonnieManagedMode(v bool) {
+	h.bonnieManagedMode = v
+}
+
+// SetManagedIdentityConfig records the frozen Bonnie-managed identity contract:
+// exact issuer/company/audience, the pinned JWKS (URL or inline), the allowlisted
+// kids, the operator key, and the entry/login redirect paths. It parses the JWKS
+// once; verification also supports live JWKS URL refresh per request.
+func (h *Handler) SetManagedIdentityConfig(cfg ManagedIdentityConfig) {
+	h.managedMu.Lock()
+	defer h.managedMu.Unlock()
+	h.managedIdentity = managedIdentityConfig{
+		issuer:                cfg.Issuer,
+		companyRef:            cfg.CompanyRef,
+		jwksURL:               cfg.JWKSURL,
+		jwksInline:            cfg.JWKS,
+		allowedKids:           cfg.AllowedKids,
+		operatorKey:           cfg.OperatorKey,
+		entryPath:             cfg.EntryPath,
+		loginRedirect:         cfg.LoginRedirect,
+		sessionTTL:            cfg.SessionTTL,
+		publicBaseURL:         cfg.PublicBaseURL,
+		siteDomain:            strings.ToLower(strings.TrimPrefix(strings.TrimSpace(cfg.SiteDomain), ".")),
+		bookingFrameAncestors: normalizeManagedFrameAncestors(cfg.BookingFrameAncestors, cfg.SiteDomain),
+	}
+	h.managedJWKS = parseJWKS(cfg.JWKS)
 }
 
 // SetDemoResetInterval records how often the demo wipes and re-seeds, purely

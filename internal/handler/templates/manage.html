@@ -1,25 +1,27 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<title>Manage booking — {{.EventTypeName}}</title>
+<title>Manage booking — {{.EventTypeName}}{{if .BusinessName}} — {{.BusinessName}}{{end}}</title>
 {{template "demoNoindex" .}}
 {{template "trackingHead" .}}
 {{.HeadHTML}}
 {{if .DataLayerEnabled}}
 <script>
   window.dataLayer = window.dataLayer || [];
-  window.__CALNODE_DL = { fields: {{.DataLayerFields}} };
-  function calnodePush(eventName, data) {
-    if (!window.__CALNODE_DL) return;
+  window.__BONNIE_DL = { fields: {{.DataLayerFields}} };
+  function bonniePush(eventName, data, legacyEventName) {
+    if (!window.__BONNIE_DL) return;
     var out = { event: eventName };
-    (window.__CALNODE_DL.fields || []).forEach(function (k) {
+    (window.__BONNIE_DL.fields || []).forEach(function (k) {
       var v = data[k];
       if (v !== undefined && v !== null && v !== '') out[k] = v;
     });
     (window.dataLayer = window.dataLayer || []).push(out);
+    if (legacyEventName) window.dataLayer.push(Object.assign({}, out, { event: legacyEventName }));
   }
 </script>
 {{end}}
@@ -39,6 +41,7 @@ body {
   padding: 2.5rem 1rem 2rem;
   gap: 1.25rem;
 }
+html.dark body { background: #0c0d10; color: #e6e6e9; }
 
 /* .powered-by footer styles live in booking.css (shared with the booking page). */
 
@@ -474,8 +477,8 @@ body {
       }
       $('success-new-time').textContent = fmtDate(pickedDate) + ' · ' + fmtTime(pickedSlot.start);
       showView('success-reschedule-view');
-      if (window.__CALNODE_DL && typeof calnodePush === 'function') {
-        calnodePush('calnode_booking_rescheduled', {
+      if (window.__BONNIE_DL && typeof bonniePush === 'function') {
+        bonniePush('bonnie_booking_rescheduled', {
           booking_id: {{.BookingID}},
           event_type_slug: SLUG,
           event_type_name: {{.EventTypeName}},
@@ -483,7 +486,7 @@ body {
           start_at: pickedSlot.start,
           host_name: {{.HostName}},
           attendee_timezone: TZ,
-        });
+        }, 'calnode_booking_rescheduled');
       }
     } catch {
       errEl.textContent = 'Network error. Please check your connection and try again.';
@@ -510,8 +513,8 @@ body {
         btn.disabled = false; btn.textContent = 'Yes, cancel booking'; return;
       }
       showView('success-cancel-view');
-      if (window.__CALNODE_DL && typeof calnodePush === 'function') {
-        calnodePush('calnode_booking_cancelled', {
+      if (window.__BONNIE_DL && typeof bonniePush === 'function') {
+        bonniePush('bonnie_booking_cancelled', {
           booking_id: {{.BookingID}},
           event_type_slug: SLUG,
           event_type_name: {{.EventTypeName}},
@@ -519,7 +522,7 @@ body {
           start_at: {{.CurrentStartISO}},
           host_name: {{.HostName}},
           attendee_timezone: TZ,
-        });
+        }, 'calnode_booking_cancelled');
       }
     } catch {
       errEl.textContent = 'Network error. Please check your connection and try again.';

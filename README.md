@@ -1,4 +1,15 @@
-# Calnode
+# Bonnie Scheduling
+
+This is Bonnie's maintained scheduling-service fork, built from the Apache-2.0
+[Calnode](https://github.com/Calnode/calnode) project. Bonnie Scheduling is a
+distinct Bonnie product and is not endorsed by or affiliated with the Calnode
+project. The upstream license and trademark notices remain in [LICENSE](LICENSE)
+and [TRADEMARK.md](TRADEMARK.md).
+
+The upstream project documentation follows so deployment and compatibility
+details stay easy to audit.
+
+## Calnode upstream documentation
 
 **A lean, self-hostable scheduling engine that lives in your AI stack.**
 

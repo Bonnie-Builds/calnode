@@ -111,6 +111,17 @@ func publicCSP(t trackingSettings) string {
 	return b.String()
 }
 
+// publicCSPWithFrameAncestors replaces only the fail-closed frame-ancestors
+// directive produced by publicCSP. Callers must pass deployment-normalized exact
+// origins; an empty list deliberately preserves frame-ancestors 'none'.
+func publicCSPWithFrameAncestors(t trackingSettings, ancestors []string) string {
+	csp := publicCSP(t)
+	if len(ancestors) == 0 {
+		return csp
+	}
+	return strings.TrimSuffix(csp, "frame-ancestors 'none'") + "frame-ancestors " + strings.Join(ancestors, " ")
+}
+
 // GetTrackingSettings handles GET /v1/settings/tracking (admin).
 func (h *Handler) GetTrackingSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {

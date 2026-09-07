@@ -9,10 +9,10 @@
 	// instance origin is all the snippet needs.
 	const embedOrigin = $derived($page.url.origin);
 	const inlineSnippet = $derived(
-		`<script src="${embedOrigin}/embed.js" async><\/script>\n<calnode-booking slug="${slug}"></calnode-booking>`
+		`<script src="${embedOrigin}/embed.js" async><\/script>\n<bonnie-booking slug="${slug}"></bonnie-booking>`
 	);
 	const popupSnippet = $derived(
-		`<script src="${embedOrigin}/embed.js" async><\/script>\n<button data-calnode-popup="${slug}">Book a call</button>`
+		`<script src="${embedOrigin}/embed.js" async><\/script>\n<button data-bonnie-popup="${slug}">Book a call</button>`
 	);
 	let copied = $state('');
 	function copyEmbed(kind: string, text: string) {

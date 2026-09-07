@@ -57,7 +57,7 @@
 			if (apiSecret) body.api_secret = apiSecret;
 			settings = await api.patch<LiveKitSettings>('/v1/settings/livekit', body);
 			apiSecret = '';
-			toast.success('Saved — "Calnode Video (LiveKit)" is now selectable as an event location');
+			toast.success('Saved — "Bonnie Video (LiveKit)" is now selectable as an event location');
 		}, 'Could not save video settings');
 	}
 
@@ -108,7 +108,7 @@
 					</li>
 					<li class="flex gap-3">
 						<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">3</span>
-						<div>Paste them below and save. Bookings using "Calnode Video (LiveKit)" then get a built-in room — no per-host connection needed.</div>
+						<div>Paste them below and save. Bookings using "Bonnie Video (LiveKit)" then get a built-in room — no per-host connection needed.</div>
 					</li>
 				</ol>
 			</div>
@@ -117,7 +117,7 @@
 		<div class="rounded-lg border bg-card p-6">
 			<div class="mb-4 flex items-start justify-between gap-2">
 				<div>
-					<h2 class="text-sm font-semibold">Calnode Video (LiveKit)</h2>
+					<h2 class="text-sm font-semibold">Bonnie Video (LiveKit)</h2>
 					<p class="mt-0.5 text-xs text-muted-foreground">
 						Built-in video meetings hosted on your LiveKit server. Each booking gets a room link;
 						guests join in the browser — no account or app required.
@@ -175,8 +175,8 @@
 						1. In LiveKit Cloud, open <span class="font-medium">Project → Settings → Webhooks</span>
 						(<a href="https://docs.livekit.io/home/server/webhooks/" target="_blank" rel="noopener noreferrer" class="text-primary underline">docs</a>).
 					</li>
-					<li>2. Add a webhook with the URL above, and attach the <span class="font-medium">same API key</span> you entered here — it signs the events so Calnode can verify them.</li>
-					<li>3. Save. LiveKit sends all project events to this one URL; Calnode verifies each signature and uses the recording-related ones.</li>
+					<li>2. Add a webhook with the URL above, and attach the <span class="font-medium">same API key</span> you entered here — it signs the events so Bonnie can verify them.</li>
+					<li>3. Save. LiveKit sends all project events to this one URL; Bonnie verifies each signature and uses the recording-related ones.</li>
 				</ol>
 			</div>
 

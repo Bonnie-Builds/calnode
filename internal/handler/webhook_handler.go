@@ -56,7 +56,14 @@ func (h *Handler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	wh, secret, err := h.webhookSvc.Create(r.Context(), user.ID, req.URL, req.Events)
+	managedProvisioning, _ := r.Context().Value(managedWebhookProvisioningKey{}).(bool)
+	var wh *webhook.Webhook
+	var secret string
+	if managedProvisioning {
+		wh, secret, err = h.webhookSvc.EnsureManaged(r.Context(), user.ID, req.URL, req.Events)
+	} else {
+		wh, secret, err = h.webhookSvc.Create(r.Context(), user.ID, req.URL, req.Events)
+	}
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "create webhook", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal error")

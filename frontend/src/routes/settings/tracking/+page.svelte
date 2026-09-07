@@ -86,7 +86,7 @@
 		<div class="rounded-lg border bg-card p-6">
 			<h2 class="text-sm font-semibold">Google Analytics &amp; Tag Manager</h2>
 			<p class="mt-0.5 text-xs text-muted-foreground">
-				Enter an ID and Calnode loads the official tag on your booking page automatically — no snippet to
+				Enter an ID and Bonnie loads the official tag on your booking page automatically — no snippet to
 				paste, and the page's CSP is handled for you. Leave a field blank to turn that tag off.
 			</p>
 			<div class="mt-4 grid gap-4 sm:grid-cols-2">
@@ -95,7 +95,7 @@
 					<Input id="gtm-id" bind:value={gtmId} placeholder="GTM-XXXXXXX" class="font-mono" />
 					<p class="text-xs text-muted-foreground">
 						Recommended — manages GA4 + Ads tags. Trigger them on the
-						<code class="rounded bg-muted px-1">calnode_booking_confirmed</code> dataLayer event below.
+						<code class="rounded bg-muted px-1">bonnie_booking_confirmed</code> dataLayer event below.
 					</p>
 				</div>
 				<div class="space-y-1.5">
@@ -139,9 +139,9 @@
 				<div>
 					<h2 class="text-sm font-semibold">dataLayer events</h2>
 					<p class="mt-0.5 text-xs text-muted-foreground">
-						Push <code class="rounded bg-muted px-1">calnode_booking_confirmed</code> /
-						<code class="rounded bg-muted px-1">_cancelled</code> /
-						<code class="rounded bg-muted px-1">_rescheduled</code> into
+						Push <code class="rounded bg-muted px-1">bonnie_booking_confirmed</code> /
+						<code class="rounded bg-muted px-1">bonnie_booking_cancelled</code> /
+						<code class="rounded bg-muted px-1">bonnie_booking_rescheduled</code> into
 						<code class="rounded bg-muted px-1">window.dataLayer</code> so GTM can trigger on them.
 					</p>
 				</div>

@@ -16,6 +16,10 @@ type Message struct {
 	Text        string // plain-text body (always set; used as the fallback alternative)
 	HTML        string // optional HTML body; when set the message is multipart/alternative
 	Attachments []Attachment
+	// IdempotencyKey deduplicates enqueue attempts. The durable worker replaces it
+	// with a delivery-specific key before talking to the provider, so every retry
+	// of one delivery is safe while separate lifecycle events remain distinct.
+	IdempotencyKey string
 }
 
 // Mailer sends email messages.

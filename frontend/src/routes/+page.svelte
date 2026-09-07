@@ -60,7 +60,7 @@
 	}
 </script>
 
-<svelte:head><title>Dashboard — Calnode</title></svelte:head>
+<svelte:head><title>Dashboard — Bonnie</title></svelte:head>
 
 {#if loading}
 	<p class="py-8 text-sm text-muted-foreground">Loading…</p>
@@ -118,7 +118,7 @@
 					Connect your calendar
 				</p>
 				<p class="mt-0.5 text-xs text-muted-foreground">
-					{calendarConfigured ? 'Calnode checks your calendar to prevent double-bookings.' : 'Google Calendar setup required — see the Calendar page for details.'}
+					{calendarConfigured ? 'Bonnie checks your calendar to prevent double-bookings.' : 'Google Calendar setup required — see the Calendar page for details.'}
 				</p>
 			</div>
 			<svg class="mt-0.5 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

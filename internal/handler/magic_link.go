@@ -130,12 +130,12 @@ func (h *Handler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
 func magicLinkMessage(to, link string) mailer.Message {
 	return mailer.Message{
 		To:      []string{to},
-		Subject: "Your Calnode login link",
-		Text: "Click the link below to sign in to Calnode. It expires in 15 minutes and can be used once.\n\n" +
+		Subject: "Your Bonnie login link",
+		Text: "Click the link below to sign in to Bonnie. It expires in 15 minutes and can be used once.\n\n" +
 			link + "\n\nIf you didn't request this, you can ignore this email.",
 		HTML: fmt.Sprintf(`<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;line-height:1.5">`+
-			`<p>Click the button below to sign in to Calnode. It expires in 15 minutes and can be used once.</p>`+
-			`<p style="margin:24px 0"><a href="%s" style="background:#111827;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;display:inline-block;font-weight:600">Sign in to Calnode</a></p>`+
+			`<p>Click the button below to sign in to Bonnie. It expires in 15 minutes and can be used once.</p>`+
+			`<p style="margin:24px 0"><a href="%s" style="background:#111827;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;display:inline-block;font-weight:600">Sign in to Bonnie</a></p>`+
 			`<p style="font-size:13px;color:#6b7280">Or paste this link into your browser:<br><a href="%s">%s</a></p>`+
 			`<p style="font-size:13px;color:#6b7280">If you didn't request this, you can ignore this email.</p></div>`,
 			link, link, link),

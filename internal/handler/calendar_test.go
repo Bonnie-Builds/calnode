@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/calnode/calnode/internal/calendar"
+	"github.com/calnode/calnode/internal/custody"
 	"github.com/calnode/calnode/internal/db"
 	"github.com/calnode/calnode/internal/gcal"
 	"github.com/calnode/calnode/internal/handler"
@@ -19,7 +21,7 @@ const testGCalKeyHex = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
 
 // newHandlerWithGCal builds a handler with a gcal.Client and a bootstrapped user.
 // Returns (handler, gcalClient, plainAPIKey, userID).
-func newHandlerWithGCal(t *testing.T) (*handler.Handler, *gcal.Client, string, string) {
+func newHandlerWithGCal(t *testing.T, opts ...gcal.Option) (*handler.Handler, *gcal.Client, string, string) {
 	t.Helper()
 	database, err := db.Open("sqlite://:memory:")
 	if err != nil {
@@ -33,7 +35,7 @@ func newHandlerWithGCal(t *testing.T) (*handler.Handler, *gcal.Client, string, s
 	h := handler.New(database, slog.Default())
 
 	gc, err := gcal.New(database, "google-client-id", "google-secret",
-		"http://localhost:3000/v1/calendar/callback", testGCalKeyHex)
+		"http://localhost:3000/v1/calendar/callback", testGCalKeyHex, opts...)
 	if err != nil {
 		t.Fatalf("gcal.New: %v", err)
 	}
@@ -58,6 +60,12 @@ func newHandlerWithGCal(t *testing.T) (*handler.Handler, *gcal.Client, string, s
 	}
 	json.Unmarshal(rec.Body.Bytes(), &setup) //nolint:errcheck
 	return h, gc, setup.APIKey, setup.UserID
+}
+
+type calendarStatusCustodyTransport struct{}
+
+func (calendarStatusCustodyTransport) Execute(context.Context, custody.Request) (custody.Outcome, error) {
+	return custody.Outcome{Kind: custody.OutcomeUnavailable}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +105,38 @@ func TestCalendarStatus_configuredButNotConnected(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &resp) //nolint:errcheck
 	if resp["connected"] != false {
 		t.Errorf("connected = %v; want false before OAuth flow completes", resp["connected"])
+	}
+}
+
+func TestCalendarStatus_managedCustodyProjectsDestinationWithoutConnectionRow(t *testing.T) {
+	h, _, apiKey, _ := newHandlerWithGCal(t, gcal.WithCustodyTransport(
+		calendarStatusCustodyTransport{}, "company-a", "instance-a",
+	))
+	h.SetBonnieManagedMode(true)
+
+	req := authReq(http.MethodGet, "/v1/calendar/status", "", apiKey)
+	rec := httptest.NewRecorder()
+	h.RequireAuth(h.CalendarStatus)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	var resp struct {
+		Connected          bool                  `json:"connected"`
+		Connections        []calendar.Connection `json:"connections"`
+		ManagedDestination *struct {
+			Provider     string `json:"provider"`
+			AccountEmail string `json:"account_email"`
+		} `json:"managed_destination"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if !resp.Connected || len(resp.Connections) != 0 {
+		t.Fatalf("managed status connected=%v connections=%d; want true and zero local rows", resp.Connected, len(resp.Connections))
+	}
+	if resp.ManagedDestination == nil || resp.ManagedDestination.Provider != "google" || resp.ManagedDestination.AccountEmail != "cal@example.com" {
+		t.Fatalf("managed destination = %#v; want exact credential-free Google member", resp.ManagedDestination)
 	}
 }
 

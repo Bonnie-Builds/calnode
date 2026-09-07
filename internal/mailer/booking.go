@@ -3,12 +3,21 @@ package mailer
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strconv"
 	"text/template"
 	"time"
 )
+
+func bookingDeliveryKey(kind string, d BookingData, recipient string) string {
+	identity := kind + "\x00" + d.BookingID + "\x00" + recipient + "\x00" +
+		d.StartAt.UTC().Format(time.RFC3339Nano)
+	sum := sha256.Sum256([]byte(identity))
+	return "booking/" + kind + "/" + hex.EncodeToString(sum[:])
+}
 
 // BookingData carries all the information needed to render booking emails.
 type BookingData struct {
@@ -30,6 +39,7 @@ type BookingData struct {
 	BaseURL            string
 	CustomNote         string // optional host-configured note appended to the email body
 	SubjectOverride    string // optional per-event-type custom subject; falls back to the default when empty
+	DeliveryKey        string // optional provider idempotency key for a specific scheduled delivery
 	// AttachICS attaches an iCalendar invite to the attendee's email — set by the
 	// handler only when the host has no Google destination calendar (so Google
 	// isn't already inviting the attendee, which would duplicate). ICSSequence must
@@ -37,7 +47,7 @@ type BookingData struct {
 	AttachICS   bool
 	ICSSequence int
 	// Branding — instance-wide, threaded in by the handler. BrandName is the
-	// wordmark/footer name (falls back to "Calnode" when empty); LogoURL is an
+	// wordmark/footer name (falls back to "Bonnie" when empty); LogoURL is an
 	// optional absolute https image shown in the HTML email header.
 	BrandName   string
 	LogoURL     string
@@ -54,7 +64,7 @@ func (d BookingData) Brand() string {
 	if d.BrandName != "" {
 		return d.BrandName
 	}
-	return "Calnode"
+	return "Bonnie"
 }
 
 // LogoPx is the email logo height in px, defaulting to 28 when unset.
@@ -155,10 +165,11 @@ func (d BookingData) OutlookCalURL() string {
 // SendConfirmationToAttendee sends a booking confirmation email to the organizer/attendee.
 func SendConfirmationToAttendee(ctx context.Context, m Mailer, d BookingData) error {
 	msg := Message{
-		To:      []string{d.OrganizerEmail},
-		Subject: d.subjectOr("Booking confirmed: " + d.EventTypeName),
-		Text:    render(confirmOrgTmpl, d),
-		HTML:    renderHTML(htmlConfirmOrg, d),
+		To:             []string{d.OrganizerEmail},
+		Subject:        d.subjectOr("Booking confirmed: " + d.EventTypeName),
+		Text:           render(confirmOrgTmpl, d),
+		HTML:           renderHTML(htmlConfirmOrg, d),
+		IdempotencyKey: bookingDeliveryKey("confirmation-attendee", d, d.OrganizerEmail),
 	}
 	if d.AttachICS {
 		msg.Attachments = []Attachment{icsAttachment(d, "REQUEST")}
@@ -176,10 +187,11 @@ func SendConfirmationToHost(ctx context.Context, m Mailer, d BookingData) error 
 	}
 	d.HideManageLink = true
 	msg := Message{
-		To:      []string{d.HostEmail},
-		Subject: "New booking: " + d.EventTypeName + " with " + d.OrganizerName,
-		Text:    render(confirmHostTmpl, d),
-		HTML:    renderHTML(htmlConfirmHost, d),
+		To:             []string{d.HostEmail},
+		Subject:        "New booking: " + d.EventTypeName + " with " + d.OrganizerName,
+		Text:           render(confirmHostTmpl, d),
+		HTML:           renderHTML(htmlConfirmHost, d),
+		IdempotencyKey: bookingDeliveryKey("confirmation-host", d, d.HostEmail),
 	}
 	if d.AttachICS {
 		msg.Attachments = []Attachment{icsAttachment(d, "REQUEST")}
@@ -213,10 +225,11 @@ func SendCancellationToAttendee(ctx context.Context, m Mailer, d BookingData) er
 		return nil
 	}
 	msg := Message{
-		To:      []string{d.OrganizerEmail},
-		Subject: d.subjectOr("Booking cancelled: " + d.EventTypeName),
-		Text:    render(cancelOrgTmpl, d),
-		HTML:    renderHTML(htmlCancelOrg, d),
+		To:             []string{d.OrganizerEmail},
+		Subject:        d.subjectOr("Booking cancelled: " + d.EventTypeName),
+		Text:           render(cancelOrgTmpl, d),
+		HTML:           renderHTML(htmlCancelOrg, d),
+		IdempotencyKey: bookingDeliveryKey("cancellation-attendee", d, d.OrganizerEmail),
 	}
 	if d.AttachICS {
 		msg.Attachments = []Attachment{icsAttachment(d, "CANCEL")}
@@ -234,10 +247,11 @@ func SendCancellationToHost(ctx context.Context, m Mailer, d BookingData) error 
 	}
 	d.HideManageLink = true
 	msg := Message{
-		To:      []string{d.HostEmail},
-		Subject: "Booking cancelled: " + d.EventTypeName + " with " + d.OrganizerName,
-		Text:    render(cancelHostTmpl, d),
-		HTML:    renderHTML(htmlCancelHost, d),
+		To:             []string{d.HostEmail},
+		Subject:        "Booking cancelled: " + d.EventTypeName + " with " + d.OrganizerName,
+		Text:           render(cancelHostTmpl, d),
+		HTML:           renderHTML(htmlCancelHost, d),
+		IdempotencyKey: bookingDeliveryKey("cancellation-host", d, d.HostEmail),
 	}
 	if d.AttachICS {
 		msg.Attachments = []Attachment{icsAttachment(d, "CANCEL")}
@@ -269,10 +283,11 @@ func SendCancellation(ctx context.Context, m Mailer, d BookingData) error {
 // d.PreviousStartAt / PreviousEndAt must be set to the old times.
 func SendRescheduleToAttendee(ctx context.Context, m Mailer, d BookingData) error {
 	msg := Message{
-		To:      []string{d.OrganizerEmail},
-		Subject: d.subjectOr("Booking rescheduled: " + d.EventTypeName),
-		Text:    render(rescheduleOrgTmpl, d),
-		HTML:    renderHTML(htmlRescheduleOrg, d),
+		To:             []string{d.OrganizerEmail},
+		Subject:        d.subjectOr("Booking rescheduled: " + d.EventTypeName),
+		Text:           render(rescheduleOrgTmpl, d),
+		HTML:           renderHTML(htmlRescheduleOrg, d),
+		IdempotencyKey: bookingDeliveryKey("reschedule-attendee", d, d.OrganizerEmail),
 	}
 	if d.AttachICS {
 		msg.Attachments = []Attachment{icsAttachment(d, "REQUEST")}
@@ -290,10 +305,11 @@ func SendRescheduleToHost(ctx context.Context, m Mailer, d BookingData) error {
 	}
 	d.HideManageLink = true
 	msg := Message{
-		To:      []string{d.HostEmail},
-		Subject: "Booking rescheduled: " + d.EventTypeName + " with " + d.OrganizerName,
-		Text:    render(rescheduleHostTmpl, d),
-		HTML:    renderHTML(htmlRescheduleHost, d),
+		To:             []string{d.HostEmail},
+		Subject:        "Booking rescheduled: " + d.EventTypeName + " with " + d.OrganizerName,
+		Text:           render(rescheduleHostTmpl, d),
+		HTML:           renderHTML(htmlRescheduleHost, d),
+		IdempotencyKey: bookingDeliveryKey("reschedule-host", d, d.HostEmail),
 	}
 	if d.AttachICS {
 		msg.Attachments = []Attachment{icsAttachment(d, "REQUEST")}
@@ -323,11 +339,16 @@ func SendReschedule(ctx context.Context, m Mailer, d BookingData) error {
 
 // SendReminder sends a reminder email to the organizer.
 func SendReminder(ctx context.Context, m Mailer, d BookingData) error {
+	deliveryKey := d.DeliveryKey
+	if deliveryKey == "" {
+		deliveryKey = bookingDeliveryKey("reminder-attendee", d, d.OrganizerEmail)
+	}
 	if err := m.Send(ctx, Message{
-		To:      []string{d.OrganizerEmail},
-		Subject: d.subjectOr("Reminder: " + d.EventTypeName + " is coming up"),
-		Text:    render(reminderOrgTmpl, d),
-		HTML:    renderHTML(htmlReminderOrg, d),
+		To:             []string{d.OrganizerEmail},
+		Subject:        d.subjectOr("Reminder: " + d.EventTypeName + " is coming up"),
+		Text:           render(reminderOrgTmpl, d),
+		HTML:           renderHTML(htmlReminderOrg, d),
+		IdempotencyKey: deliveryKey,
 	}); err != nil {
 		return fmt.Errorf("mailer: reminder: %w", err)
 	}
@@ -390,7 +411,7 @@ To cancel, visit:
 ---
 {{.CustomNote}}
 {{end}}
-— Calnode
+— {{.Brand}}
 `))
 
 var confirmHostTmpl = template.Must(template.New("confirm-host").Parse(
@@ -406,7 +427,7 @@ Location: {{.LocationValue}}{{end}}
 
 Booking reference: {{.BookingID}}
 
-— Calnode
+— {{.Brand}}
 `))
 
 var cancelOrgTmpl = template.Must(template.New("cancel-org").Parse(
@@ -426,7 +447,7 @@ To rebook, visit:
 ---
 {{.CustomNote}}
 {{end}}
-— Calnode
+— {{.Brand}}
 `))
 
 var cancelHostTmpl = template.Must(template.New("cancel-host").Parse(
@@ -442,7 +463,7 @@ Reason:   {{.CancellationReason}}{{end}}
 
 Booking reference: {{.BookingID}}
 
-— Calnode
+— {{.Brand}}
 `))
 
 var rescheduleOrgTmpl = template.Must(template.New("reschedule-org").Parse(
@@ -469,7 +490,7 @@ To reschedule or cancel again, visit:
 ---
 {{.CustomNote}}
 {{end}}
-— Calnode
+— {{.Brand}}
 `))
 
 var rescheduleHostTmpl = template.Must(template.New("reschedule-host").Parse(
@@ -486,7 +507,7 @@ Location: {{.LocationValue}}{{end}}
 
 Booking reference: {{.BookingID}}
 
-— Calnode
+— {{.Brand}}
 `))
 
 var reminderOrgTmpl = template.Must(template.New("reminder-org").Parse(
@@ -512,5 +533,5 @@ To reschedule or cancel, visit:
 ---
 {{.CustomNote}}
 {{end}}
-— Calnode
+— {{.Brand}}
 `))

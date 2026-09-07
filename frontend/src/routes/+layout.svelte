@@ -18,8 +18,7 @@
 	let reportOpen = $state(false);
 	let recordingsConfigured = $state(false);
 
-	const ISSUES_URL = 'https://github.com/Calnode/calnode/issues';
-	const NEW_ISSUE_URL = 'https://github.com/Calnode/calnode/issues/new/choose';
+	const SUPPORT_URL = 'https://bonniebuilds.com';
 
 	const isLogin = $derived($page.route.id === '/login');
 	const isPublicRoute = $derived(
@@ -63,6 +62,7 @@
 			href: `${base}/calendar`,
 			label: 'Calendar',
 			adminOnly: false,
+			managedDeny: true,
 			icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><rect x="8" y="14" width="2" height="2"/><rect x="13" y="14" width="2" height="2"/></svg>`
 		},
 		{
@@ -99,6 +99,7 @@
 			href: `${base}/connections`,
 			label: 'Connected apps',
 			adminOnly: false,
+			managedDeny: true,
 			icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>`
 		},
 		{
@@ -106,6 +107,7 @@
 			href: `${base}/webhooks`,
 			label: 'Webhooks',
 			adminOnly: false,
+			managedDeny: true,
 			icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`
 		},
 		{
@@ -122,9 +124,11 @@
 			(item) =>
 				(!item.adminOnly || $currentUser?.is_admin) &&
 				!($authStatus.demo_mode && item.label === 'Calendar') &&
+				!(item.managedDeny && $authStatus.managed) &&
 				(item.requiresFeature !== 'recordings' || recordingsConfigured)
 		)
 	);
+	const resolvedNavHref = (item: (typeof navItems)[number]) => item.href;
 
 	onMount(async () => {
 		if (isPublicRoute) {
@@ -215,11 +219,12 @@
 					{:else if !item.section && visibleNavItems[i - 1]?.section}
 						<div class="my-2 border-t border-sidebar-border"></div>
 					{/if}
+					{@const href = resolvedNavHref(item)}
 					{@const active = item.exact
-						? $page.url.pathname === item.href || $page.url.pathname === base
-						: $page.url.pathname.startsWith(item.href)}
+						? $page.url.pathname === href || $page.url.pathname === base
+						: $page.url.pathname.startsWith(href)}
 					<a
-						href={item.href}
+						href={href}
 						class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors
 							{active
 								? 'bg-sidebar-accent text-sidebar-accent-foreground'
@@ -268,31 +273,20 @@
 	<Dialog.Root bind:open={reportOpen}>
 		<Dialog.Content class="max-w-md">
 			<Dialog.Header>
-				<Dialog.Title>Report an issue</Dialog.Title>
+				<Dialog.Title>Bonnie support</Dialog.Title>
 				<Dialog.Description>
-					Please <strong>search the existing issues first</strong> — it may already be reported or being
-					worked on. The tracker is for <strong>reproducible bugs</strong> in Calnode; for setup help or
-					“how do I…” questions, please use Discussions instead.
+					Visit Bonnie support for help with scheduling or to report a problem.
 				</Dialog.Description>
 			</Dialog.Header>
-			<Dialog.Footer class="gap-2 sm:justify-between">
+			<Dialog.Footer>
 				<a
-					href={ISSUES_URL}
-					target="_blank"
-					rel="noopener noreferrer"
-					onclick={() => (reportOpen = false)}
-					class={buttonVariants({ variant: 'outline' })}
-				>
-					Search existing issues
-				</a>
-				<a
-					href={NEW_ISSUE_URL}
+					href={SUPPORT_URL}
 					target="_blank"
 					rel="noopener noreferrer"
 					onclick={() => (reportOpen = false)}
 					class={buttonVariants()}
 				>
-					Report a bug
+					Open Bonnie support
 				</a>
 			</Dialog.Footer>
 		</Dialog.Content>

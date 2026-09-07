@@ -40,6 +40,44 @@ func TestSameOrigin_blocksCrossOriginCookieWrite(t *testing.T) {
 	}
 }
 
+func TestSameOrigin_blocksCrossOriginLocalManagedCookieWrite(t *testing.T) {
+	r := csrfReq(http.MethodPost, "http://evil.example.net", false)
+	r.AddCookie(&http.Cookie{Name: "calnode_session_local", Value: "local-session"})
+	code, called := runSameOrigin(r)
+	if code != http.StatusForbidden || called {
+		t.Fatalf("local managed browser cookie must retain CSRF protection: status=%d called=%v", code, called)
+	}
+}
+
+func TestSameOrigin_blocksLegacyManagedExchangePaths(t *testing.T) {
+	paths := []string{
+		"/v1/auth/managed/exchange",
+		"/v1/auth/managed/exchange/calendar/embed",
+		"/v1/auth/managed/exchange/calendar/full",
+	}
+	for _, path := range paths {
+		r := httptest.NewRequest(http.MethodPost, "http://scheduler.example.com"+path, nil)
+		r.Host = "scheduler.example.com"
+		r.Header.Set("Origin", "https://app.example.com")
+		r.AddCookie(&http.Cookie{Name: "calnode_session", Value: "stale-or-active-session"})
+		code, called := runSameOrigin(r)
+		if code != http.StatusForbidden || called {
+			t.Fatalf("removed managed assertion exchange %q must have no CSRF exemption: status=%d called=%v", path, code, called)
+		}
+	}
+}
+
+func TestSameOrigin_doesNotExemptManagedExchangeLookalikes(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "http://scheduler.example.com/v1/auth/managed/exchange/calendar/embed/extra", nil)
+	r.Host = "scheduler.example.com"
+	r.Header.Set("Origin", "https://app.example.com")
+	r.AddCookie(&http.Cookie{Name: "calnode_session", Value: "session"})
+	code, called := runSameOrigin(r)
+	if code != http.StatusForbidden || called {
+		t.Fatalf("managed exchange lookalike must remain blocked: status=%d called=%v", code, called)
+	}
+}
+
 func TestSameOrigin_allowsSameOriginCookieWrite(t *testing.T) {
 	code, called := runSameOrigin(csrfReq(http.MethodPost, "http://app.example.com", true))
 	if code != http.StatusOK || !called {
