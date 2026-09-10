@@ -128,16 +128,26 @@ func TestManagedAvailabilityControlsCandidateSlotsAndPreservesOverrides(t *testi
 	getSlots := func() []struct {
 		Start string `json:"start"`
 		End   string `json:"end"`
-	} { t.Helper(); req := httptest.NewRequest(http.MethodGet, "/v1/event-types/availability-test/slots?from="+dayText+"&to="+dayText+"&tz=UTC", nil); req.SetPathValue("slug", "availability-test"); rec := httptest.NewRecorder(); h.GetSlots(rec, req); if rec.Code != 200 {
-		t.Fatalf("slots: %d %s", rec.Code, rec.Body.String())
-	}; var result struct {
-		Slots []struct {
-			Start string `json:"start"`
-			End   string `json:"end"`
-		} `json:"slots"`
-	}; if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}; return result.Slots }
+	} {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/v1/event-types/availability-test/slots?from="+dayText+"&to="+dayText+"&tz=UTC", nil)
+		req.SetPathValue("slug", "availability-test")
+		rec := httptest.NewRecorder()
+		h.GetSlots(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("slots: %d %s", rec.Code, rec.Body.String())
+		}
+		var result struct {
+			Slots []struct {
+				Start string `json:"start"`
+				End   string `json:"end"`
+			} `json:"slots"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result.Slots
+	}
 	if initial := getSlots(); len(initial) != 0 {
 		t.Fatalf("unsaved hours produced slots: %+v", initial)
 	}
