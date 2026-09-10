@@ -116,7 +116,7 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		"is_owner":    user.IsOwner,
 		"role":        user.Role(),
 		// Notification preferences
-		"is_managed_member": user.IsManagedMember,
+		"is_managed_member":      user.IsManagedMember,
 		"notify_confirmation":    user.NotifyConfirmation,
 		"notify_cancellation":    user.NotifyCancellation,
 		"notify_reschedule":      user.NotifyReschedule,

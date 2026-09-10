@@ -28,6 +28,7 @@ permissions:
 
 jobs:
   cla:
+    if: github.repository == 'Calnode/calnode'
     runs-on: ubuntu-latest
     steps:
       - name: CLA Assistant
