@@ -54,6 +54,8 @@ type Handler struct {
 	demoMu            sync.RWMutex
 	demoNextResetAt   time.Time
 
+	bonnieMeetingBotEmail string
+
 	managedMu       sync.RWMutex
 	managedIdentity managedIdentityConfig
 	managedJWKS     *jwksSet // parsed verification keys; nil until configured
@@ -207,6 +209,11 @@ func (h *Handler) SetDemoMode(v bool) {
 // credential surface. Calnode retains only managed member and scheduling state.
 func (h *Handler) SetBonnieManagedMode(v bool) {
 	h.bonnieManagedMode = v
+}
+
+// SetBonnieMeetingBotEmail sets the deployment-owned Google Meet guest identity.
+func (h *Handler) SetBonnieMeetingBotEmail(email string) {
+	h.bonnieMeetingBotEmail = strings.ToLower(strings.TrimSpace(email))
 }
 
 // SetManagedIdentityConfig records the frozen Bonnie-managed identity contract:

@@ -252,7 +252,6 @@ func (h *Handler) createManagedBooking(r *http.Request, et *bookableEventType, r
 		EventTypeName: et.Name, EventTypeSlug: request.EventTypeSlug,
 		LocationType: et.LocationType, OrganizerName: participants[0].Name,
 		OrganizerEmail: participants[0].Email, OrganizerTimezone: participants[0].IANATimezone,
-		Participants: participants[1:],
 	})
 	return created, nil
 }

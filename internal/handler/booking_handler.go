@@ -776,6 +776,12 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	participants, err := h.correlatedMeetingGuests(et.LocationType, correlationRef, req.Email)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "create booking: meeting guest configuration", "error", err)
+		h.writeError(w, http.StatusServiceUnavailable, "meeting scheduling is temporarily unavailable")
+		return
+	}
 	b, err := h.bookingSvc.Create(r.Context(), booking.CreateParams{
 		EventTypeID:   et.ID,
 		HostIDs:       candidates,
@@ -794,6 +800,7 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 		Answers:             answers,
 		MaxActivePerInvitee: et.MaxActiveBookings,
 		CorrelationRef:      correlationRef,
+		Participants:        participants,
 	})
 	if err != nil {
 		if errors.Is(err, booking.ErrDoubleBooked) {
@@ -899,7 +906,6 @@ type bookingConfirmationInput struct {
 	OrganizerName     string
 	OrganizerEmail    string
 	OrganizerTimezone string
-	Participants      []booking.Attendee
 }
 
 // hostPrefsOrDefault loads a host's notification prefs, defaulting to allOnPrefs and
@@ -1023,9 +1029,11 @@ func (h *Handler) createHostEventsAndNotify(ctx context.Context, b *booking.Book
 		// the per-host event ID so it can be cancelled later. The primary's id
 		// also lives on the booking row for back-compat.
 		if gc != nil {
-			additionalAttendees := make([]calendar.EventAttendee, 0, len(in.Participants))
-			for _, participant := range in.Participants {
-				additionalAttendees = append(additionalAttendees, calendar.EventAttendee{Name: participant.Name, Email: participant.Email})
+			additionalAttendees, err := h.calendarBookingParticipants(ctx, b.ID)
+			if err != nil {
+				h.logger.ErrorContext(ctx, "create calendar event: load participants", "error", err, "booking_id", b.ID)
+				h.nudgeCalendarReconcile()
+				continue
 			}
 			eventID, link, err := gc.CreateEvent(ctx, host.UserID, calendar.CreateEventParams{
 				Summary:            in.EventTypeName + " with " + in.OrganizerName,

@@ -51,7 +51,8 @@ app you must `pnpm build` in `frontend/` **and** rebuild/restart the Go binary
   - `PUBLIC_BASE_URL` — booker-facing host (booking links, emails); defaults to BASE_URL. The split lets a tenant put the team on a custom domain (`book.acme.com`) while OAuth/admin stay on the identity host (see §16).
   - `CALNODE_ENCRYPTION_KEY` (platform secret / KEK input), `CALNODE_RECOVERY_SECRET` (escrow)
   - `SMTP_*` and `GOOGLE_CLIENT_ID/SECRET` (also settable at runtime in DB settings, which take priority)
-  - `BONNIE_MANAGED_MODE` (optional; enables Bonnie-managed identity, members, and booking surfaces; provider OAuth stays in Calnode)
+  - `BONNIE_MANAGED_MODE` (optional; enables Bonnie-managed identity, members, and booking surfaces with Bonbon-owned Google custody)
+  - `BONNIE_MEETING_BOT_EMAIL` (deployment-owned Google Meet guest for Bonnie-correlated public bookings)
   - `MICROSOFT_CLIENT_ID/SECRET` and `MICROSOFT_TENANT` (default `common`; use the
     multi-tenant `common` so any work/personal Microsoft account can connect/sign in)
   - `COOKIE_SECURE` (defaults true when BASE_URL is https)
@@ -366,7 +367,16 @@ that creates the Calnode member, while Bonbon authorization remains the sole
 owner of Google consent and credentials. Calnode stores only member and
 scheduling state. Its Google adapter sends bounded, idempotent calendar effects
 and provider observations through the configured custody transport; provider
-tokens never enter Calnode. A managed member's email is the logical destination,
+tokens never enter Calnode. Correlated public Google Meet bookings also require
+the deployment-owned `BONNIE_MEETING_BOT_EMAIL`. The booking handler adds that
+identity as a persisted non-organizer guest before committing the booking,
+deduplicates it against the invitee, and rejects missing or malformed configuration
+before creating a booking. Uncorrelated bookings and Bonnie Rooms are unaffected.
+Calendar creation and missing-event reconciliation both load the persisted guest
+set, including direct managed-booking participants, so repairs and paid-booking
+confirmation cannot silently drop guests.
+
+A managed member's email is the logical destination,
 so readiness and write routing do not require a local `calendar_connections` row.
 
 **Per-provider notes.**

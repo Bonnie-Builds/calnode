@@ -45,6 +45,7 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	h.SetEncKey(cfg.EncryptionKey)
 	h.SetDemoMode(cfg.DemoMode)
 	h.SetBonnieManagedMode(cfg.BonnieManagedMode)
+	h.SetBonnieMeetingBotEmail(cfg.BonnieMeetingBotEmail)
 	h.SetManagedIdentityConfig(handler.ManagedIdentityConfig{
 		Issuer:                cfg.BonnieManagedIssuer,
 		CompanyRef:            cfg.BonnieManagedCompany,

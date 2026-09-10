@@ -35,6 +35,8 @@ type Config struct {
 	// BonnieManagedMode disables Calnode's browser calendar-consent flow and
 	// enables Bonnie-managed identity and scheduling surfaces.
 	BonnieManagedMode bool
+	// BonnieMeetingBotEmail is the deployment-owned guest for correlated Google Meet bookings.
+	BonnieMeetingBotEmail string
 
 	// Microsoft 365 / Outlook (calendar) — env-only; tenant defaults to "common".
 	MicrosoftClientID     string
@@ -172,6 +174,7 @@ func Load() *Config {
 	cfg.CookieSecure = getBool("COOKIE_SECURE", strings.HasPrefix(cfg.BaseURL, "https://"))
 	cfg.DemoMode = getBool("DEMO_MODE", false)
 	cfg.BonnieManagedMode = getBool("BONNIE_MANAGED_MODE", false)
+	cfg.BonnieMeetingBotEmail = strings.ToLower(strings.TrimSpace(os.Getenv("BONNIE_MEETING_BOT_EMAIL")))
 	cfg.BonnieManagedIssuer = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_ISSUER"))
 	cfg.BonnieManagedCompany = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_COMPANY"))
 	cfg.BonnieManagedJWKSURL = strings.TrimSpace(os.Getenv("BONNIE_MANAGED_JWKS_URL"))

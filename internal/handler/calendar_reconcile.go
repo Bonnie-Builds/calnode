@@ -207,6 +207,11 @@ func (h *Handler) reconcileCreations(ctx context.Context, gc *calendar.Service) 
 				autoGenMeet = providerMintsPlatform(m.locationType, provider)
 			}
 		}
+		participants, err := h.calendarBookingParticipants(ctx, m.bookingID)
+		if err != nil {
+			h.logger.ErrorContext(ctx, "reconcile: load participants", "error", err, "booking_id", m.bookingID)
+			continue
+		}
 		eventID, link, err := gc.CreateEvent(ctx, m.userID, calendar.CreateEventParams{
 			Summary:            m.etName + " with " + m.orgName,
 			Description:        "Booking ID: " + m.bookingID,
@@ -215,6 +220,7 @@ func (h *Handler) reconcileCreations(ctx context.Context, gc *calendar.Service) 
 			End:                end,
 			OrganizerName:      m.orgName,
 			OrganizerEmail:     m.orgEmail,
+			Attendees:          participants,
 			AddMeet:            autoGenMeet,
 			StableOperationKey: "bk:" + m.bookingID + ":" + m.userID,
 		})
