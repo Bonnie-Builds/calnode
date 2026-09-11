@@ -326,6 +326,7 @@ func New(ctx context.Context, cfg *config.Config, db *sql.DB, logger *slog.Logge
 
 	// Bonnie-managed lifecycle and calendar APIs are non-browser boundaries.
 	if cfg.BonnieManagedMode {
+		mux.HandleFunc("POST /v1/auth/managed/availability", h.ManagedAvailabilityExchange)
 		// Operator-key-only managed member lifecycle. These authenticate via
 		// X-Operator-Key, never a browser session or member API key.
 		mux.HandleFunc("POST /v1/managed/members", h.RequireManagedOperator(h.ManagedEnsureMember))

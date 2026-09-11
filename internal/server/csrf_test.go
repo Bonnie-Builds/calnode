@@ -116,3 +116,18 @@ func TestSameOrigin_fallsBackToReferer(t *testing.T) {
 		t.Errorf("cross-origin Referer should block: status=%d called=%v", code, called)
 	}
 }
+
+func TestAvailabilityAssertionExchangeIsTheOnlyNewCrossOriginException(t *testing.T) {
+	for _, path := range []string{"/v1/auth/managed/availability", "/v1/availability-rules"} {
+		r := csrfReq(http.MethodPost, "https://bonnie.example", true)
+		r.URL.Path = path
+		code, called := runSameOrigin(r)
+		if path == "/v1/auth/managed/availability" {
+			if code != 200 || !called {
+				t.Fatal("signed assertion exchange blocked by stale browser cookie")
+			}
+		} else if code != 403 || called {
+			t.Fatal("ordinary availability write lost CSRF protection")
+		}
+	}
+}

@@ -85,7 +85,7 @@ func (rw *responseWriter) Flush() {
 // Host (the common default).
 func SameOriginCheck(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isStateChanging(r.Method) {
+		if isStateChanging(r.Method) && !(r.Method == http.MethodPost && r.URL.Path == "/v1/auth/managed/availability") {
 			if hasBrowserSessionCookie(r) {
 				if src := requestOriginHost(r); src != "" && !strings.EqualFold(src, r.Host) {
 					w.Header().Set("Content-Type", "application/json")

@@ -911,3 +911,6 @@ matching section in the same PR. Notable rounds:
   location validation** for every type + smart default + picker reorder, and
   **Microsoft OAuth sign-in** (`/v1/auth/microsoft/*`, identity-only). Touched §3,
   §4, §6, §10. Known constraint: Teams auto-links need a work account (§18).
+
+### Managed availability editor launch
+Bonnie may POST a short-lived, one-time managed assertion to `/v1/auth/managed/availability`. The exchange resolves only the existing active member, issues a bounded native session, and redirects to the fixed `/admin/availability` editor. It cannot provision members, change their timezone, or accept a redirect target. The exact exchange is exempt from cookie same-origin checking because the signed assertion authorizes the cross-origin POST; all other native write routes retain their existing checks.
