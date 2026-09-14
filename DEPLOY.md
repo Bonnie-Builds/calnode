@@ -29,7 +29,7 @@ This guide covers a generic Docker deploy and a step-by-step **Railway** deploy
 | `PUBLIC_BASE_URL` | no | = `BASE_URL` | Booker-facing host for booking links/emails, if different from the identity host. |
 | `DATABASE_URL` | no | `sqlite://./data/calnode.db` | Point at the persistent volume, e.g. `sqlite:///data/calnode.db`. |
 | `PORT` | no | `3000` | The app listens on `$PORT`. Many platforms inject their own (Railway injects `8080`) — let them. |
-| `RESEND_API_KEY` | no¹ | — | Recommended email setup. Uses Resend SMTP (`smtp.resend.com:587`, user `resend`, STARTTLS). |
+| `RESEND_API_KEY` | no¹ | — | Recommended email setup. Sends through the Resend HTTPS API on port 443. |
 | `EMAIL_SMTP_HOST` / `_PORT` / `_USER` / `_PASS` | no¹ | — / `587` | Generic SMTP alternative. Can also be set later in Settings → Email (DB-stored, encrypted). Deployment env takes precedence over DB settings. |
 | `EMAIL_SMTP_TLS` / `_STARTTLS` | no | `false` | `STARTTLS` for 587, implicit `TLS` for 465. |
 | `EMAIL_FROM_ADDRESS` / `EMAIL_FROM_NAME` | no | `bookings@localhost` / `Bonnie` | The From identity. Resend requires a verified sender address. |
@@ -102,8 +102,8 @@ provider. With **Resend**:
 
 1. Verify your domain in Resend (add the SPF/DKIM/MX records it shows; **DNS-only** on Cloudflare).
 2. Create an API key.
-3. Settings → Email (or env): host `smtp.resend.com`, port `587`, username `resend`,
-   password = the API key, **STARTTLS on**, From `bookings@yourdomain`.
+3. Set `RESEND_API_KEY` and `EMAIL_FROM_ADDRESS=bookings@yourdomain` in the
+   deployment environment. Generic SMTP remains available in Settings → Email.
 4. Send a test email.
 
 > Email settings are stored **per instance** in that instance's DB — staging/prod/local each need their own.
