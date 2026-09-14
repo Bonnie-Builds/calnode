@@ -104,6 +104,11 @@ func BuildHandler(ctx context.Context, cfg *config.Config, db *sql.DB, logger *s
 	}
 
 	switch {
+	case cfg.EmailProvider == "resend" && cfg.SMTPPass != "":
+		live.Swap(mailer.NewResendAPI(cfg.SMTPPass, cfg.EmailFrom, cfg.EmailFromName))
+		logger.Info("mailer: configured from environment", "provider", "resend", "transport", "https")
+		syncSMTPToDB(db, cfg, encKey, logger)
+
 	case cfg.SMTPHost != "":
 		live.Swap(mailer.NewSMTP(
 			cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass,
