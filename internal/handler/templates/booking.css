@@ -461,6 +461,8 @@ html.dark .cd.available { background: #222329; }
 html.dark .cd.available:hover { background: #2b2c33; }
 html.dark .cd.sel { background: #e6e6e9 !important; color: #0c0d10 !important; }
 html.dark .slot-btn.sel { background: #e6e6e9; color: #0c0d10; border-color: #e6e6e9; }
+html.dark .slot-btn:not(.sel) { background: #222329; }
+html.dark .slot-btn:not(.sel):hover { background: #2b2c33; }
 html.dark input,
 html.dark select,
 html.dark textarea,
